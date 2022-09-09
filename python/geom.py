@@ -945,6 +945,23 @@ class GyrotropicSaturatedSusceptibility(Susceptibility):
         self.alpha = alpha
 
 
+class QmeAtom(Susceptibility):
+    """
+    Specifies a quantum master equaiton counterpart of 
+    multievel atomic susceptibility for modeling saturable gain and
+    absorption. This is a subclass of `E_susceptibilities` which contains two objects: (1)
+    `transitions`: a list of atomic `Transition`s (defined below), and (2)
+    `initial_populations`: a list of numbers defining the initial population of each
+    atomic level. See [Materials/Saturable Gain and
+    Absorption](Materials.md#saturable-gain-and-absorption).
+    """
+
+    def __init__(self, initial_populations=None, transitions=None, **kwargs):
+        super().__init__(**kwargs)
+        self.initial_populations = initial_populations or []
+        self.transitions = transitions or []
+
+
 class MultilevelAtom(Susceptibility):
     """
     Specifies a multievel atomic susceptibility for modeling saturable gain and
