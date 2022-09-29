@@ -12,4 +12,4 @@ autoreconf --verbose --install --symlink --force
 #sed -i 's@$CPPFLAGS $GUILE_CPPFLAGS@$CPPFLAGS $GUILE_CPPFLAGS -I$LIBCTL_DIR/include @' configure
 
 #./configure --without-scheme --with-libctl=/home/zhy/local/libctl/ "$@" 
-./configure --without-scheme --enable-maintainer-mode --with-libctl=/home/zhy/local/libctl/ --prefix=/home/zhy/Documents/polariton/meep_install LDFLAGS="-L$HOME/local/libctl/lib" CPPFLAGS="-I$HOME/local/libctl/include/"  "$@"
+./configure --without-scheme --enable-maintainer-mode --with-libctl=/home/zhy/local/libctl/ --prefix=/home/zhy/Documents/polariton/meep_install LDFLAGS="-L$HOME/local/libctl/lib -L$HOME/local/harminv141/lib" CPPFLAGS="-I$HOME/local/libctl/include/ -I$HOME/local/harminv141/include"  "$@"
