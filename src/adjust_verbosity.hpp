@@ -17,6 +17,7 @@
 #ifndef ADJUST_VERBOSITY_H
 #define ADJUST_VERBOSITY_H
 
+#define HAVE_MPB 1
 // NOTE: This header assumes it has been #included *after* headers that declare
 // verbosity, HAVE_MPB, and mpb_verbosity.
 
@@ -27,6 +28,7 @@ namespace meep {
 class adjust_mpb_verbosity {
 public:
   adjust_mpb_verbosity() {
+
 #if defined(HAVE_MPB) &&                                                                           \
     (MPB_VERSION_MAJOR > 1 || (MPB_VERSION_MAJOR == 1 && MPB_VERSION_MINOR >= 11))
     old_level = mpb_verbosity;

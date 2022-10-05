@@ -115,6 +115,11 @@ if test "$enable_debug" = "yes"; then
 	CFLAGS="-g"
 	CXXFLAGS="-g"
 	FFLAGS="-g"
+        if test "$GCC" = "yes"; then
+	CFLAGS="$CFLAGS -fbacktrace -fbounds-check"
+	CXXFLAGS="$CXXFLAGS -fbacktrace -fbounds-check"
+	FFLAGS="$FFLAGS -fbacktrace -fbounds-check"
+	fi
 	AC_DEFINE(DEBUG,1,[define to enable debugging code])
 fi
 
