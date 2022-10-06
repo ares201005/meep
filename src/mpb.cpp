@@ -346,6 +346,7 @@ void *fields::get_eigenmode(double frequency, direction d, const volume where, c
         kpoint.set_direction(dd, real(k[dd]));
   }
 
+  master_printf("test-zy: in get_eigenmode 1\n");
   bool empty_dim[3] = {false, false, false};
 
   // special case: 2d cell in x and y with non-zero kz
@@ -480,6 +481,7 @@ void *fields::get_eigenmode(double frequency, direction d, const volume where, c
   }
 
   if (check_maxwell_dielectric(mdata, 0)) meep::abort("invalid dielectric function for MPB");
+  master_printf("test-zy: in get_eigenmode 2\n");
 
   double kmatch;
   if (d == NO_DIRECTION) {
@@ -557,11 +559,13 @@ void *fields::get_eigenmode(double frequency, direction d, const volume where, c
   double dkmatch_prev = kmatch;
   int count_dkmatch_increase = 0;
 
+  master_printf("test-zy: in get_eigenmode 3\n");
   /*--------------------------------------------------------------*/
   /*- part 2: newton iteration loop with call to MPB on each step */
   /*-         until eigenmode converged to requested tolerance    */
   /*--------------------------------------------------------------*/
   if (am_master() && !dp) do {
+      master_printf("test-zy: before eigensolver\n");
       eigensolver(H, eigvals, maxwell_operator, (void *)mdata,
 #if MPB_VERSION_MAJOR > 1 || (MPB_VERSION_MAJOR == 1 && MPB_VERSION_MINOR >= 6)
                   NULL, NULL, /* eventually, we can support mu here */
@@ -569,6 +573,7 @@ void *fields::get_eigenmode(double frequency, direction d, const volume where, c
                   maxwell_preconditioner2, (void *)mdata, evectconstraint_chain_func,
                   (void *)constraints, W, 3, eigensolver_tol, &num_iters,
                   EIGS_DEFAULT_FLAGS | (am_master() && verbosity > 1 ? EIGS_VERBOSE : 0));
+      master_printf("test-zy: after eigensolver\n");
       if (verbosity > 0)
         master_printf("MPB solved for frequency_%d(%g,%g,%g) "
                       "= %g after %d iters\n",
@@ -703,6 +708,7 @@ void *fields::get_eigenmode(double frequency, direction d, const volume where, c
 
   if (!match_frequency) frequency = sqrt(eigval);
 
+  master_printf("test-zy: in get_eigenmode 4\n");
   /*--------------------------------------------------------------*/
   /*- part 3: do one stage of postprocessing to tabulate H-field  */
   /*-         components on the internal storage buffer in mdata  */
@@ -764,6 +770,7 @@ void *fields::get_eigenmode(double frequency, direction d, const volume where, c
 
   maxwell_compute_e_from_d(mdata, fft_data_E, 1);
 
+  master_printf("test-zy: in get_eigenmode 5\n");
   /*--------------------------------------------------------------*/
   /*- part 4: initialize and return output data structures.       */
   /*--------------------------------------------------------------*/
@@ -944,6 +951,7 @@ void fields::get_eigenmode_coefficients(dft_flux flux, const volume &eig_vol, in
       /*--------------------------------------------------------------*/
       /*- call mpb to compute the eigenmode --------------------------*/
       /*--------------------------------------------------------------*/
+      master_printf("test-zy: before call mpb get_eigenmode\n");
       int band_num = bands ? bands[nb] : 1;
       double kdom[3];
       if (user_kpoint_func) kpoint = user_kpoint_func(flux.freq[nf], band_num, user_kpoint_data);
@@ -952,6 +960,7 @@ void fields::get_eigenmode_coefficients(dft_flux flux, const volume &eig_vol, in
           get_eigenmode(flux.freq[nf], d, flux.where, eig_vol, band_num, kpoint, match_frequency,
                         parity, eig_resolution, eigensolver_tol, kdom, (void **)&mdata, dp);
       finished_working();
+      master_printf("test-zy: finish mpb get_eigenmode\n");
       if (!mode_data) { // mode not found, assume evanescent
         coeffs[2 * nb * num_freqs + 2 * nf] = coeffs[2 * nb * num_freqs + 2 * nf + 1] = 0;
         if (vgrp) vgrp[nb * num_freqs + nf] = 0;
