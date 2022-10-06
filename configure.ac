@@ -112,9 +112,9 @@ AC_ARG_ENABLE(debug,
               [AS_HELP_STRING([--enable-debug],[compile for debugging])],
 	      enable_debug=$enableval, enable_debug=no)
 if test "$enable_debug" = "yes"; then
-	CFLAGS="-g"
-	CXXFLAGS="-g"
-	FFLAGS="-g"
+	CFLAGS="-Og"
+	CXXFLAGS="-Og "
+	FFLAGS="-Og"
         if test "$GCC" = "yes"; then
 	FFLAGS="$FFLAGS -fbacktrace -fbounds-check"
 	fi
