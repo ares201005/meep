@@ -162,7 +162,7 @@ class DiffractedPlanewave:
         """
         Construct a `DiffractedPlanewave`.
 
-        + **`g` [ list of 3 `integer`s ]** — The diffraction order $(m_x,m_y,m_z)$ corresponding to the wavevector $(k_x+2\\pi m_x/\\Lambda_x,k_y+2\\pi m_y/\\Lambda_y,k_z+2\\pi m_z/\\Lambda_z)$. The diffraction order $m_{x,y,z}$ should be non-zero only in the $d$-1 periodic directions of a $d$ dimensional cell of size $(\\Lambda_x,\\Lambda_y,\\Lambda_z)$ (e.g., a plane in 3d) in which the mode monitor or source extends the entire length of the cell.
+        + **`g` [ list of 3 `integer`s ]** — The diffraction order $(m_x,m_y,m_z)$ corresponding to the wavevector $(k_x+2\\pi m_x/\\Lambda_x,k_y+2\\pi m_y/\\Lambda_y,k_z+2\\pi m_z/\\Lambda_z)$. $(k_x,k_y,k_z)$ is the `k_point` (wavevector specifying the Bloch-periodic boundaries) of the `Simulation` class object. The diffraction order $m_{x,y,z}$ should be non-zero only in the $d$-1 periodic directions of a $d$ dimensional cell of size $(\\Lambda_x,\\Lambda_y,\\Lambda_z)$ (e.g., a plane in 3d) in which the mode monitor or source extends the entire length of the cell.
 
         + **`axis` [ `Vector3` ]** — The plane of incidence for each planewave (used to define the $\\mathcal{S}$ and $\\mathcal{P}$ polarizations below) is defined to be the plane that contains the `axis` vector and the planewave's wavevector. If `None`, `axis` defaults to the first direction that lies in the plane of the monitor or source (e.g., $y$ direction for a $yz$ plane in 3d, either $x$ or $y$ in 2d).
 
@@ -4344,6 +4344,21 @@ class Simulation:
                     self.fields.use_bloch(
                         py_v3_to_vec(self.dimensions, self.k_point, self.is_cylindrical)
                     )
+
+    def change_m(self, m: float) -> None:
+        """Changes the simulation's `m` number (the angular ϕ dependence)."""
+        self.m = m
+
+        if self.fields:
+            needs_complex_fields = not (not self.m or self.m == 0)
+
+            if needs_complex_fields and self.fields.is_real:
+                self.fields = None
+                self._is_initialized = False
+                self.init_sim()
+            else:
+                if self.m is not None:
+                    self.fields.change_m(m)
 
     def change_sources(self, new_sources):
         """
