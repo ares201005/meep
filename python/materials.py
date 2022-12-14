@@ -1,6 +1,5 @@
 # Materials Library
 import numpy as np
-
 import meep as mp
 
 # default unit length is 1 μm
