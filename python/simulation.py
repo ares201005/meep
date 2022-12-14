@@ -41,6 +41,8 @@ try:
 except ImportError:
     do_progress = False
 
+from matplotlib.axes import Axes
+
 verbosity = Verbosity(mp.cvar, "meep", 1)
 
 mp.setup()
@@ -1376,6 +1378,9 @@ class Simulation:
     # on the settings in the Simulation instance. This method must be called on
     # any user-defined Volume before passing it to meep via its `swigobj`.
     def _fit_volume_to_simulation(self, vol: Volume) -> Volume:
+        if self.dimensions == mp.CYLINDRICAL:
+            self.dimensions = 2
+            self.is_cylindrical = True
         return Volume(
             vol.center,
             vol.size,
@@ -4656,22 +4661,24 @@ class Simulation:
 
     def plot2D(
         self,
-        ax=None,
-        output_plane=None,
-        fields=None,
-        labels=False,
-        eps_parameters=None,
-        boundary_parameters=None,
-        source_parameters=None,
-        monitor_parameters=None,
-        field_parameters=None,
-        frequency=None,
-        plot_eps_flag=True,
-        plot_sources_flag=True,
-        plot_monitors_flag=True,
-        plot_boundaries_flag=True,
+        ax: Optional[Axes] = None,
+        output_plane: Optional[Volume] = None,
+        fields: Optional = None,
+        labels: Optional[bool] = False,
+        eps_parameters: Optional[dict] = None,
+        boundary_parameters: Optional[dict] = None,
+        source_parameters: Optional[dict] = None,
+        monitor_parameters: Optional[dict] = None,
+        field_parameters: Optional[dict] = None,
+        colorbar_parameters: Optional[dict] = None,
+        frequency: Optional[float] = None,
+        plot_eps_flag: bool = True,
+        plot_sources_flag: bool = True,
+        plot_monitors_flag: bool = True,
+        plot_boundaries_flag: bool = True,
+        nb: bool = False,
         **kwargs,
-    ):
+    ) -> None:
         """
         Plots a 2D cross section of the simulation domain using `matplotlib`. The plot
         includes the geometry, boundary layers, sources, and monitors. Fields can also be
@@ -4723,6 +4730,7 @@ class Simulation:
               plot. Defaults to the `frequency` parameter of the [Source](#source) object.
             - `resolution=None`: the resolution of the $\\varepsilon$ grid. Defaults to the
               `resolution` of the `Simulation` object.
+            - `colorbar=False`: whether to add a colorbar to the plot's parent Figure based on epsilon values.
         * `boundary_parameters`: a `dict` of optional plotting parameters that override
           the default parameters for the boundary layers.
             - `alpha=1.0`: transparency of boundary layers
@@ -4759,6 +4767,21 @@ class Simulation:
             - `alpha=0.6`: transparency of fields
             - `post_process=np.real`: post processing function to apply to fields (must be
               a function object)
+            - `colorbar=False`: whether to add a colorbar to the plot's parent Figure based on field values.
+        * `colorbar_parameters`:  a `dict` of optional plotting parameters that override the default parameters for
+          the colorbar.
+            - `label=None`: an optional label for the colorbar, defaults to '$\\epsilon_r$' for epsilon and
+            'field values' for fields.
+            - `orientation='vertical'`: the orientation of the colorbar gradient
+            - `extend=None`: make pointed end(s) for out-of-range values. Allowed values are:
+            ['neither', 'both', 'min', 'max']
+            - `format=None`: formatter for tick labels. Can be an fstring (i.e. "{x:.2e}") or a
+            [matplotlib.ticker.ScalarFormatter](https://matplotlib.org/stable/api/ticker_api.html#matplotlib.ticker.ScalarFormatter).
+            - `position='right'`: position of the colorbar with respect to the Axes
+            - `size='5%'`: size of the colorbar in the dimension perpendicular to its `orientation`
+            - `pad='2%'`: fraction of original axes between colorbar and image axes
+        * `nb`: set this to True if plotting in a Jupyter notebook to use ipympl for plotting. Note: this requires
+        ipympl to be installed.
         """
         import meep.visualization as vis
 
@@ -4773,11 +4796,13 @@ class Simulation:
             source_parameters=source_parameters,
             monitor_parameters=monitor_parameters,
             field_parameters=field_parameters,
+            colorbar_parameters=colorbar_parameters,
             frequency=frequency,
             plot_eps_flag=plot_eps_flag,
             plot_sources_flag=plot_sources_flag,
             plot_monitors_flag=plot_monitors_flag,
             plot_boundaries_flag=plot_boundaries_flag,
+            nb=nb,
             **kwargs,
         )
 
@@ -4786,14 +4811,25 @@ class Simulation:
 
         return vis.plot_fields(self, **kwargs)
 
-    def plot3D(self):
+    def plot3D(
+        self, save_to_image: bool = False, image_name: str = "sim.png", **kwargs
+    ):
         """
-        Uses Mayavi to render a 3D simulation domain. The simulation object must be 3D.
+        Uses vispy to render a 3D scene of the simulation object. The simulation object must be 3D.
         Can also be embedded in Jupyter notebooks.
+
+        Args:
+            save_to_image: if True, saves the image to a file
+            image_name: the name of the image file to save to
+
+        kwargs: Camera settings.
+            scale_factor: float, camera zoom factor
+            azimuth: float, azimuthal angle in degrees
+            elevation: float, elevation angle in degrees
         """
         import meep.visualization as vis
 
-        return vis.plot3D(self)
+        return vis.plot3D(self, save_to_image, image_name, **kwargs)
 
     def visualize_chunks(self):
         """
