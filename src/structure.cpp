@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -543,6 +543,16 @@ bool structure_chunk::has_chisigma(component c, direction d) const {
 
 bool structure_chunk::has_chi1inv(component c, direction d) const {
   return is_mine() && chi1inv[c][d] && !trivial_chi1inv[c][d];
+}
+
+bool structure_chunk::has_nonlinearities() const {
+  bool nonlinear = false;
+  if (!is_mine()) return false;
+  FOR_COMPONENTS(c) { nonlinear = nonlinear || chi2[c] || chi3[c]; }
+  FOR_FIELD_TYPES(ft) {
+    if (chiP[ft]) nonlinear = nonlinear || chiP[ft]->has_nonlinearities();
+  }
+  return nonlinear;
 }
 
 void structure::mix_with(const structure *oth, double f) {

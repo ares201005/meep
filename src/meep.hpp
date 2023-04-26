@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -105,7 +105,9 @@ public:
   int get_id() const { return id; }
   bool operator==(const susceptibility &s) const { return id == s.id; };
 
-  // Returns the 1st order nonlinear susceptibility (generic)
+  virtual bool has_nonlinearities() const { return next ? next->has_nonlinearities() : false; }
+
+  // Returns the 1st order (linear) susceptibility (generic)
   virtual std::complex<realnum> chi1(realnum freq, realnum sigma = 1);
 
   // update all of the internal polarization state given the W field
@@ -344,6 +346,8 @@ public:
   multilevel_susceptibility(const multilevel_susceptibility &from);
   virtual susceptibility *clone() const { return new multilevel_susceptibility(*this); }
   virtual ~multilevel_susceptibility();
+
+  virtual bool has_nonlinearities() const { return true; }
 
   virtual void update_P(realnum *W[NUM_FIELD_COMPONENTS][2],
                         realnum *W_prev[NUM_FIELD_COMPONENTS][2], realnum dt, const grid_volume &gv,
@@ -615,6 +619,8 @@ public:
   void use_pml(direction, double dx, double boundary_loc, double Rasymptotic, double mean_stretch,
                pml_profile_func pml_profile, void *pml_profile_data, double pml_profile_integral,
                double pml_profile_integral_u);
+
+  bool has_nonlinearities() const;
 
   void add_susceptibility(material_function &sigma, field_type ft, const susceptibility &sus);
 
@@ -1546,6 +1552,7 @@ public:
   void remove_sources();
   void remove_susceptibilities(bool shared_chunks);
   void zero_fields();
+  void change_m(double new_m);
 
   // update_eh.cpp
   bool needs_W_prev(component c) const;
@@ -1751,6 +1758,8 @@ public:
   void remove_fluxes();
   void reset();
   void log(const char *prefix = "");
+  void change_m(double new_m);
+  bool has_nonlinearities(bool parallel = true) const;
 
   // time.cpp
   std::vector<double> time_spent_on(time_sink sink);

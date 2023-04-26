@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -663,6 +663,13 @@ void fields_chunk::use_real_fields() {
     }
 }
 
+bool fields::has_nonlinearities(bool parallel) const {
+  bool nonlinear = false;
+  for (int i = 0; i < num_chunks; i++)
+    if (chunks[i]->is_mine()) nonlinear = nonlinear || chunks[i]->s->has_nonlinearities();
+  return parallel ? or_to_all(nonlinear) : nonlinear;
+}
+
 int fields::phase_in_material(const structure *snew, double time) {
   if (snew->num_chunks != num_chunks)
     meep::abort("Can only phase in similar sets of chunks: %d vs %d\n", snew->num_chunks,
@@ -792,5 +799,20 @@ double linear_interpolate(double rx, double ry, double rz, double *data, int nx,
 bool operator==(const comms_key &lhs, const comms_key &rhs) {
   return (lhs.ft == rhs.ft) && (lhs.phase == rhs.phase) && (lhs.pair == rhs.pair);
 }
+
+void fields::change_m(double new_m) {
+  m = new_m;
+  if ((new_m != 0) && (is_real)) {
+    meep::abort("The simulation must be reinitialized if switching to complex fields!\n");
+  }
+
+  if ((new_m == 0) && (!is_real)) { use_real_fields(); }
+
+  for (int i = 0; i < num_chunks; i++) {
+    chunks[i]->change_m(new_m);
+  }
+}
+
+void fields_chunk::change_m(double new_m) { m = new_m; }
 
 } // namespace meep

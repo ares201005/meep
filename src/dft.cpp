@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology.
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -204,10 +204,15 @@ dft_chunk *fields::add_dft(component c, const volume &where, const double *freq,
     double freq_max = 0;
     for (size_t i = 0; i < Nfreq; ++i)
       freq_max = std::max(freq_max, std::abs(freq[i]));
-    if ((freq_max > 0) && (src_freq_max > 0))
+    if ((freq_max > 0) && (src_freq_max > 0) && !has_nonlinearities(false))
       decimation_factor = std::max(1, int(std::floor(1 / (dt * (freq_max + src_freq_max)))));
     else
       decimation_factor = 1;
+
+    // with add_srcdata sources, it's possible that not all
+    // sources are present on all chunks, leading us to over-estimate
+    // the allowed decimation_factor -- take minimimum to be sure:
+    decimation_factor = min_to_all(decimation_factor);
   }
   data.decimation_factor = decimation_factor;
 
@@ -252,7 +257,7 @@ void fields_chunk::update_dfts(double timeE, double timeH, int current_step) {
   if (doing_solve_cw) return;
   for (dft_chunk *cur = dft_chunks; cur; cur = cur->next_in_chunk) {
     if ((current_step % cur->get_decimation_factor()) == 0) {
-      cur->update_dft(is_magnetic(cur->c) ? timeH : timeE);
+      cur->update_dft(is_H_or_B(cur->c) ? timeH : timeE);
     }
   }
 }

@@ -480,6 +480,23 @@ rounded to single precision.
 </div>
 
 
+<a id="Simulation.timestep"></a>
+
+<div class="class_members" markdown="1">
+
+```python
+def timestep(self):
+```
+
+<div class="method_docstring" markdown="1">
+
+Return the number of elapsed timesteps.
+
+</div>
+
+</div>
+
+
 <a id="Simulation.print_times"></a>
 
 <div class="class_members" markdown="1">
@@ -1536,7 +1553,7 @@ def __init__(self,
 
 Construct a `DiffractedPlanewave`.
 
-+ **`g` [ list of 3 `integer`s ]** — The diffraction order $(m_x,m_y,m_z)$ corresponding to the wavevector $(k_x+2\pi m_x/\Lambda_x,k_y+2\pi m_y/\Lambda_y,k_z+2\pi m_z/\Lambda_z)$. The diffraction order $m_{x,y,z}$ should be non-zero only in the $d$-1 periodic directions of a $d$ dimensional cell of size $(\Lambda_x,\Lambda_y,\Lambda_z)$ (e.g., a plane in 3d) in which the mode monitor or source extends the entire length of the cell.
++ **`g` [ list of 3 `integer`s ]** — The diffraction order $(m_x,m_y,m_z)$ corresponding to the wavevector $(k_x+2\pi m_x/\Lambda_x,k_y+2\pi m_y/\Lambda_y,k_z+2\pi m_z/\Lambda_z)$. $(k_x,k_y,k_z)$ is the `k_point` (wavevector specifying the Bloch-periodic boundaries) of the `Simulation` class object. The diffraction order $m_{x,y,z}$ should be non-zero only in the $d$-1 periodic directions of a $d$ dimensional cell of size $(\Lambda_x,\Lambda_y,\Lambda_z)$ (e.g., a plane in 3d) in which the mode monitor or source extends the entire length of the cell.
 
 + **`axis` [ `Vector3` ]** — The plane of incidence for each planewave (used to define the $\mathcal{S}$ and $\mathcal{P}$ polarizations below) is defined to be the plane that contains the `axis` vector and the planewave's wavevector. If `None`, `axis` defaults to the first direction that lies in the plane of the monitor or source (e.g., $y$ direction for a $yz$ plane in 3d, either $x$ or $y$ in 2d).
 
@@ -2518,12 +2535,13 @@ sim2.run(...)
 
 #### Load and Dump Fields
 
-These functions can be used to dump (and later load) the time-domain fields, auxiliary
-fields for PMLs, polarization fields (for dispersive materials), and the DFT fields
-at a certain timestamp. The timestamp at which the dump happens is also saved so that
-the simulation can continue from where it was saved. The one pre-requisite of this
-feature is that it needs the `Simulation` object to have been setup *exactly* the
-same as the one it was dumped from.
+These functions can be used to dump (and later load) the time-domain
+fields and the DFT fields at a certain timestamp. Polarization fields
+for dispersive materials are *not* supported. The timestamp at which
+the dump happens is also saved so that the simulation can continue
+from where it was saved. The one prerequisite of this feature is that
+it needs the `Simulation` object to have been setup *exactly* the same
+as the one it was dumped from.
 
 
 <a id="Simulation.dump_fields"></a>
@@ -2745,20 +2763,22 @@ This module provides basic visualization functionality for the simulation domain
 
 ```python
 def plot2D(self,
-           ax=None,
-           output_plane=None,
-           fields=None,
-           labels=False,
-           eps_parameters=None,
-           boundary_parameters=None,
-           source_parameters=None,
-           monitor_parameters=None,
-           field_parameters=None,
-           frequency=None,
-           plot_eps_flag=True,
-           plot_sources_flag=True,
-           plot_monitors_flag=True,
-           plot_boundaries_flag=True,
+           ax: Optional[matplotlib.axes._axes.Axes] = None,
+           output_plane: Optional[meep.simulation.Volume] = None,
+           fields: Optional = None,
+           labels: Optional[bool] = False,
+           eps_parameters: Optional[dict] = None,
+           boundary_parameters: Optional[dict] = None,
+           source_parameters: Optional[dict] = None,
+           monitor_parameters: Optional[dict] = None,
+           field_parameters: Optional[dict] = None,
+           colorbar_parameters: Optional[dict] = None,
+           frequency: Optional[float] = None,
+           plot_eps_flag: bool = True,
+           plot_sources_flag: bool = True,
+           plot_monitors_flag: bool = True,
+           plot_boundaries_flag: bool = True,
+           nb: bool = False,
            **kwargs):
 ```
 
@@ -2814,6 +2834,7 @@ to be called on all processes, but only generates a plot on the master process.
       plot. Defaults to the `frequency` parameter of the [Source](#source) object.
     - `resolution=None`: the resolution of the $\varepsilon$ grid. Defaults to the
       `resolution` of the `Simulation` object.
+    - `colorbar=False`: whether to add a colorbar to the plot's parent Figure based on epsilon values.
 * `boundary_parameters`: a `dict` of optional plotting parameters that override
   the default parameters for the boundary layers.
     - `alpha=1.0`: transparency of boundary layers
@@ -2850,6 +2871,21 @@ to be called on all processes, but only generates a plot on the master process.
     - `alpha=0.6`: transparency of fields
     - `post_process=np.real`: post processing function to apply to fields (must be
       a function object)
+    - `colorbar=False`: whether to add a colorbar to the plot's parent Figure based on field values.
+* `colorbar_parameters`:  a `dict` of optional plotting parameters that override the default parameters for
+  the colorbar.
+    - `label=None`: an optional label for the colorbar, defaults to '$\epsilon_r$' for epsilon and
+    'field values' for fields.
+    - `orientation='vertical'`: the orientation of the colorbar gradient
+    - `extend=None`: make pointed end(s) for out-of-range values. Allowed values are:
+    ['neither', 'both', 'min', 'max']
+    - `format=None`: formatter for tick labels. Can be an fstring (i.e. "{x:.2e}") or a
+    [matplotlib.ticker.ScalarFormatter](https://matplotlib.org/stable/api/ticker_api.html#matplotlib.ticker.ScalarFormatter).
+    - `position='right'`: position of the colorbar with respect to the Axes
+    - `size='5%'`: size of the colorbar in the dimension perpendicular to its `orientation`
+    - `pad='2%'`: fraction of original axes between colorbar and image axes
+* `nb`: set this to True if plotting in a Jupyter notebook to use ipympl for plotting. Note: this requires
+ipympl to be installed.
 
 </div>
 
@@ -2861,13 +2897,25 @@ to be called on all processes, but only generates a plot on the master process.
 <div class="class_members" markdown="1">
 
 ```python
-def plot3D(self):
+def plot3D(self,
+           save_to_image: bool = False,
+           image_name: str = 'sim.png',
+           **kwargs):
 ```
 
 <div class="method_docstring" markdown="1">
 
-Uses Mayavi to render a 3D simulation domain. The simulation object must be 3D.
+Uses vispy to render a 3D scene of the simulation object. The simulation object must be 3D.
 Can also be embedded in Jupyter notebooks.
+
+Args:
+    save_to_image: if True, saves the image to a file
+    image_name: the name of the image file to save to
+
+kwargs: Camera settings.
+    scale_factor: float, camera zoom factor
+    azimuth: float, azimuthal angle in degrees
+    elevation: float, elevation angle in degrees
 
 </div>
 
@@ -4022,6 +4070,13 @@ The following step function collects field data from a given point and runs [Har
 * [Harminv class](#Harminv)
 
 
+#### PadeDFT Step Function
+
+The following step function collects field data from a given point or volume and performs spectral extrapolation by computing the [Pade approximant](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.pade.html) of the DFT at every specified spatial point.
+
+* [PadeDFT class](#PadeDFT)
+
+
 ### Step-Function Modifiers
 
 Rather than writing a brand-new step function every time something a bit different is required, the following "modifier" functions take a bunch of step functions and produce *new* step functions with modified behavior. See also [Tutorial/Basics](Python_Tutorials/Basics.md) for examples.
@@ -4632,15 +4687,15 @@ argument of the [`Simulation`](#Simulation) constructor (similar to a [material 
 
 ```python
 def __init__(self,
-             grid_size,
-             medium1,
-             medium2,
-             weights=None,
-             grid_type='U_DEFAULT',
-             do_averaging=True,
-             beta=0,
-             eta=0.5,
-             damping=0):
+             grid_size: Union[meep.geom.Vector3, Tuple[float, ...]],
+             medium1: meep.geom.Medium,
+             medium2: meep.geom.Medium,
+             weights: numpy.ndarray = None,
+             grid_type: str = 'U_DEFAULT',
+             do_averaging: bool = True,
+             beta: float = 0,
+             eta: float = 0.5,
+             damping: float = 0):
 ```
 
 <div class="method_docstring" markdown="1">
@@ -4657,6 +4712,7 @@ The grid points are defined at the corners of the voxels.
 ![](images/material_grid.png#center)
 
 Elements of the `weights` array must be in the range [0,1] where 0 is `medium1` and 1 is `medium2`.
+An array of boolean values `False` and `True` will be converted to 0 and 1, respectively.
 The `weights` array is used to define a linear interpolation from `medium1` to `medium2`.
 Two material types are supported: (1) frequency-independent isotropic $\varepsilon$ (`epsilon_diag`
 and `epsilon_offdiag` are interpolated) and (2) `LorentzianSusceptibility` (`sigma` and `sigma_offdiag`
@@ -4668,7 +4724,8 @@ For improving accuracy, [subpixel smoothing](Subpixel_Smoothing.md) can be enabl
 `do_averaging=True`. If you want to use a material grid to define a (nearly) discontinuous,
 piecewise-constant material that is *either* `medium1` or `medium2` almost everywhere, you can
 optionally enable a (smoothed) *projection* feature by setting the parameter `beta` to a
-positive value. When the projection feature is enabled, the weights $u(x)$ can be thought of as a
+positive value. The default is no projection (`beta=0`). When the projection feature is
+enabled, the weights $u(x)$ can be thought of as a
 [level-set function](https://en.wikipedia.org/wiki/Level-set_method) defining an interface at
 $u(x)=\eta$ with a smoothing factor $\beta$ where $\beta=+\infty$ gives an unsmoothed,
 discontinuous interface. The projection operator is $(\tanh(\beta\times\eta)
@@ -4677,7 +4734,12 @@ involving the parameters `beta` ($\beta$: bias or "smoothness" of the turn on) a
 ($\eta$: offset for erosion/dilation). The level set provides a general approach for defining
 a *discontinuous* function from otherwise continuously varying (via the bilinear interpolation)
 grid values. Subpixel smoothing is fast and accurate because it exploits an analytic formulation
-for level-set functions.
+for level-set functions. Note that when subpixel smoothing is enabled via `do_averaging=True`,
+projecting the `weights` is done internally using the `beta` parameter. It is therefore not
+necessary to manually project the `weights` outside of `MaterialGrid`. However, visualizing
+the `weights` used to define the structure does require manually projecting the `weights` yourself.
+(Alternatively, you can output the actual structure using [`plot2D`](#data-visualization) or
+[`output_epsilon`](#output-functions_1).)
 
 A nonzero `damping` term creates an artificial conductivity $\sigma = u(1-u)*$`damping`, which acts as
 dissipation loss that penalizes intermediate pixel values of non-binarized structures. The value of
@@ -4701,7 +4763,7 @@ allow you to combine any material grids that overlap in space with no intervenin
 <div class="class_members" markdown="1">
 
 ```python
-def update_weights(self, x):
+def update_weights(self, x: numpy.ndarray):
 ```
 
 <div class="method_docstring" markdown="1">
@@ -6241,7 +6303,7 @@ def __init__(self,
              side: int = -1,
              R_asymptotic: float = 1e-15,
              mean_stretch: float = 1.0,
-             pml_profile: Callable[[float], float] = <function <lambda> at 0x7f3a89740ca0>):
+             pml_profile: Callable[[float], float] = <function <lambda> at 0x7fc8c5bb7760>):
 ```
 
 <div class="method_docstring" markdown="1">
@@ -6654,26 +6716,26 @@ Returns the total power of the fields from the eigenmode source at frequency `fr
 
 
 ---
-<a id="GaussianBeamSource"></a>
+<a id="GaussianBeam3DSource"></a>
 
-### GaussianBeamSource
+### GaussianBeam3DSource
 
 ```python
-class GaussianBeamSource(Source):
+class GaussianBeam3DSource(Source):
 ```
 
 <div class="class_docstring" markdown="1">
 
-This is a subclass of `Source` and has **all of the properties** of `Source` above. However, the `component` parameter of the `Source` object is ignored. The [Gaussian beam](https://en.wikipedia.org/wiki/Gaussian_beam) is a transverse electromagnetic mode for which the source region must be a *line* (in 2d) or *plane* (in 3d). For a beam polarized in the $x$ direction with propagation along $+z$, the electric field is defined by $\mathbf{E}(r,z)=E_0\hat{x}\frac{w_0}{w(z)}\exp\left(\frac{-r^2}{w(z)^2}\right)\exp\left(-i\left(kz + k\frac{r^2}{2R(z)}\right)\right)$ where $r$ is the radial distance from the center axis of the beam, $z$ is the axial distance from the beam's focus (or "waist"), $k=2\pi n/\lambda$ is the wavenumber (for a free-space wavelength $\lambda$ and refractive index $n$ of the homogeneous, lossless medium in which the beam propagates), $E_0$ is the electric field amplitude at the origin, $w(z)$ is the radius at which the field amplitude decays by $1/e$ of its axial values, $w_0$ is the beam waist radius, and $R(z)$ is the radius of curvature of the beam's wavefront at $z$. The only independent parameters that need to be specified are $w_0$, $E_0$, $k$, and the location of the beam focus (i.e., the origin: $r=z=0$).
+This is a subclass of `Source` and has **all of the properties** of `Source` above. However, the `component` parameter of the `Source` object is ignored. The [Gaussian beam](https://en.wikipedia.org/wiki/Gaussian_beam) is a transverse electromagnetic mode for which the source region must be a *line* (in 2d) or *plane* (in 3d). For a beam polarized in the $x$ direction with propagation along $+z$, the electric field is defined by $\mathbf{E}(r,z)=E_0\hat{x}\frac{w_0}{w(z)}\exp\left(\frac{-r^2}{w(z)^2}\right)\exp\left(-i\left(kz + k\frac{r^2}{2R(z)}\right)\right)$ where $r$ is the radial distance from the center axis of the beam, $z$ is the axial distance from the beam's focus (or "waist"), $k=2\pi n/\lambda$ is the wavenumber (for a free-space wavelength $\lambda$ and refractive index $n$ of the homogeneous, lossless medium in which the beam propagates), $E_0$ is the electric-field amplitude at the origin, $w(z)$ is the radius at which the field amplitude decays by $1/e$ of its axial values, $w_0$ is the beam waist radius, and $R(z)$ is the radius of curvature of the beam's wavefront at $z$. The only independent parameters that need to be specified are $w_0$, $E_0$, $k$, and the location of the beam focus (i.e., the origin: $r=z=0$).
 
-(In 3d, we use a ["complex point-source" method](https://doi.org/10.1364/JOSAA.16.001381) to define a source that generates an exact Gaussian-beam solution.  In 2d, we currently use the simple approximation of taking a cross-section of the 3d beam.  In both cases, the beam is most accurate near the source's center frequency.)
+In 3d, we use a ["complex point-source" method](https://doi.org/10.1364/JOSAA.16.001381) to define a source that generates an exact Gaussian-beam solution.  In 2d, we currently use the simple approximation of taking a cross-section of the 3d beam.  In both cases, the beam is most accurate near the source's center frequency.) To use the true solution for a 2d Gaussian beam, use the `GaussianBeam2DSource` class instead.
 
-The `SourceTime` object (`Source.src`), which specifies the time dependence of the source, should normally be a narrow-band `ContinuousSource` or `GaussianSource`.  (For a `CustomSource`, the beam frequency is determined by the source's `center_frequency` parameter.)
+The `SourceTime` object (`Source.src`), which specifies the time dependence of the source, should normally be a narrow-band `ContinuousSource` or `GaussianSource`.  (For a `CustomSource`, the beam frequency is determined by the source's `center_frequency` parameter.
 
 </div>
 
 
-<a id="GaussianBeamSource.__init__"></a>
+<a id="GaussianBeam3DSource.__init__"></a>
 
 <div class="class_members" markdown="1">
 
@@ -6703,6 +6765,23 @@ Construct a `GaussianBeamSource`.
 + **`beam_E0` [`Vector3`]** — The polarization vector of the beam. Elements can be complex valued (i.e., for circular polarization). The polarization vector must be *parallel* to the source region in order to generate a transverse mode.
 
 </div>
+
+</div>
+
+
+---
+<a id="GaussianBeam2DSource"></a>
+
+### GaussianBeam2DSource
+
+```python
+class GaussianBeam2DSource(GaussianBeam3DSource):
+```
+
+<div class="class_docstring" markdown="1">
+
+Identical to `GaussianBeam3DSource` except that the beam is defined in 2d.
+This is useful for 2d simulations where the 3d beam is not exact.
 
 </div>
 
@@ -7147,14 +7226,12 @@ class Animate2D(object):
 <div class="class_docstring" markdown="1">
 
 A class used to record the fields during timestepping (i.e., a [`run`](#run-functions)
-function). The object is initialized prior to timestepping by specifying the
-simulation object and the field component. The object can then be passed to any
-[step-function modifier](#step-function-modifiers). For example, one can record the
-$E_z$ fields at every one time unit using:
+function). The object is initialized prior to timestepping by specifying the field component.
+The object can then be passed to any [step-function modifier](#step-function-modifiers).
+For example, one can record the $E_z$ fields at every one time unit using:
 
 ```py
-animate = mp.Animate2D(sim,
-                       fields=mp.Ez,
+animate = mp.Animate2D(fields=mp.Ez,
                        realtime=True,
                        field_parameters={'alpha':0.8, 'cmap':'RdBu', 'interpolation':'none'},
                        boundary_parameters={'hatch':'o', 'linewidth':1.5, 'facecolor':'y', 'edgecolor':'b', 'alpha':0.3})
@@ -7183,7 +7260,9 @@ track different volume locations (using `mp.in_volume`) or field components.
 <div class="class_members" markdown="1">
 
 ```python
-def __call__(self, sim, todo):
+def __call__(self,
+             sim: meep.simulation.Simulation,
+             todo: str):
 ```
 
 <div class="method_docstring" markdown="1">
@@ -7201,12 +7280,14 @@ Call self as a function.
 
 ```python
 def __init__(self,
-             sim,
-             fields,
-             f=None,
-             realtime=False,
-             normalize=False,
-             plot_modifiers=None,
+             sim: Optional[meep.simulation.Simulation] = None,
+             fields: Optional = None,
+             f: Optional[matplotlib.figure.Figure] = None,
+             realtime: bool = False,
+             normalize: bool = False,
+             plot_modifiers: Optional[list] = None,
+             update_epsilon: bool = False,
+             nb: bool = False,
              **customization_args):
 ```
 
@@ -7214,17 +7295,16 @@ def __init__(self,
 
 Construct an `Animate2D` object.
 
-+ **`sim`** — Simulation object.
++ **`sim=None`** — Optional Simulation object (this has no effect, and is included for backwards compatibility).
 
-+ **`fields`** — Field component to record at each time instant.
++ **`fields=None`** — Optional Field component to record at each time instant.
 
 + **`f=None`** — Optional `matplotlib` figure object that the routine will update
   on each call. If not supplied, then a new one will be created upon
   initialization.
 
 + **`realtime=False`** — Whether or not to update a figure window in realtime as
-  the simulation progresses. Disabled by default. Not compatible with
-  IPython/Jupyter notebooks.
+  the simulation progresses. Disabled by default.
 
 + **`normalize=False`** — Records fields at each time step in memory in a NumPy
   array and then normalizes the result by dividing by the maximum field value at a
@@ -7243,6 +7323,10 @@ Construct an `Animate2D` object.
   plot_modifiers = [mod1]
 ```
 
++ **`update_epsilon=False`** — Redraw epsilon on each call. (Useful for topology optimization)
+
++ **`nb=False`** — For the animation work in a Jupyter notebook, set to True and use the cell magic:
+    `%matplotlib ipympl`
 + **`**customization_args`** — Customization keyword arguments passed to
   `plot2D()` (i.e. `labels`, `eps_parameters`, `boundary_parameters`, etc.)
 
@@ -7256,7 +7340,7 @@ Construct an `Animate2D` object.
 <div class="class_members" markdown="1">
 
 ```python
-def to_gif(self, fps, filename):
+def to_gif(self, fps: int, filename: str) -> None:
 ```
 
 <div class="method_docstring" markdown="1">
@@ -7277,7 +7361,8 @@ format only supports 256 colors from a _predefined_ color palette. Requires
 <div class="class_members" markdown="1">
 
 ```python
-def to_jshtml(self, fps):
+def to_jshtml(self,
+              fps: int):
 ```
 
 <div class="method_docstring" markdown="1">
@@ -7296,7 +7381,7 @@ playback. User must specify a frame rate `fps` in frames per second.
 <div class="class_members" markdown="1">
 
 ```python
-def to_mp4(self, fps, filename):
+def to_mp4(self, fps: int, filename: str) -> None:
 ```
 
 <div class="method_docstring" markdown="1">
@@ -7410,6 +7495,127 @@ of the run, it uses Harminv to look for modes in the given frequency range (cent
 `harminv:`) as comma-delimited text, and also storing them to the variable
 `Harminv.modes`. The optional argument `mxbands` is the maximum number of modes to
 search for. Defaults to 100.
+
+</div>
+
+</div>
+
+
+---
+<a id="PadeDFT"></a>
+
+### PadeDFT
+
+```python
+class PadeDFT(object):
+```
+
+<div class="class_docstring" markdown="1">
+
+Padé approximant based spectral extrapolation is implemented as a class with a [`__call__`](#PadeDFT.__call__) method,
+which allows it to be used as a step function that collects field data from a given
+point and runs [Padé](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.pade.html)
+on that data to extract an analytic rational function which approximates the frequency response.
+For more information about the Padé approximant, see the [wiki](https://en.wikipedia.org/wiki/Padé_approximant).
+
+See [`__init__`](#PadeDFT.__init__) for details about constructing a `PadeDFT`.
+
+In particular, `PadeDFT` stores the discrete time series $\hat{f}[n]$ corresponding to the given field
+component as a function of time and expresses it as:
+
+$$\hat{f}(\omega) = \sum_n \hat{f}[n] e^{i\omega n \Delta t}$$
+
+The above is a "Taylor-like" polynomial in $n$ with a Fourier basis and
+coefficients which are the sampled field data. We then compute the Padé approximant
+to be the analytic form of this function as:
+
+$$R(f) = R(2 \pi \omega) = \frac{P(f)}{Q(f)}$$
+
+Where $P$ and $Q$ are polynomials of degree $m$ and $n$, and $m + n + 1$ is the
+degree of agreement of the Padé approximant to the analytic function $f(2 \pi \omega)$. This
+function $R$ is stored in the callable method `pade_instance.dft`. Note that the computed polynomials
+$P$ and $Q$ for each spatial point are stored as well in the instance variable `pade_instance.polys`,
+as a spatial array of dicts: `[{"P": P(t), "Q": Q(t)}]` with no spectral extrapolation performed.
+Be sure to save a reference to the `Pade` instance if you wish
+to use the results after the simulation:
+
+```py
+sim = mp.Simulation(...)
+p = mp.PadeDFT(...)
+sim.run(p, until=time)
+# do something with p.dft
+```
+
+</div>
+
+
+<a id="PadeDFT.__call__"></a>
+
+<div class="class_members" markdown="1">
+
+```python
+def __call__(self, sim, todo):
+```
+
+<div class="method_docstring" markdown="1">
+
+Allows a PadeDFT instance to be used as a step function.
+
+</div>
+
+</div>
+
+
+<a id="PadeDFT.__init__"></a>
+
+<div class="class_members" markdown="1">
+
+```python
+def __init__(
+    self,
+    c: int = None,
+    vol: Volume = None,
+    center: Vector3Type = None,
+    size: Vector3Type = None,
+    m: Optional[int] = None,
+    n: Optional[int] = None,
+    m_frac: float = 0.5,
+    n_frac: Optional[float] = None,
+    sampling_interval: int = 1,
+    start_time: int = 0,
+    stop_time: Optional[int] = None,
+):
+```
+
+<div class="method_docstring" markdown="1">
+
+Construct a Padé DFT object.
+
+A `PadeDFT` is a step function that collects data from the field component `c`
+(e.g. `meep.Ex`, etc.) at the given point `pt` (a `Vector3`). Then, at the end
+of the run, it uses the scipy Padé algorithm to approximate the analytic
+frequency response at the specified point.
+
++ **`c` [`component` constant]** — Specifies the field component to use for extrapolation.
+  No default.
++ **`vol` [`Volume`]** — Specifies the volume over which to accumulate fields
+  (may be 0d, 1d, 2d, or 3d). No default.
++ **`center` [`Vector3` class]** — Alternative method for specifying volume, using a center point
++ **`size` [`Vector3` class]** — Alternative method for specifying volume, using a size vector
++ **`m` [`Optional[int]`]** — Directly pecifies the order of the numerator $P$. If not specified,
+  defaults to the length of aggregated field data times `m_frac`.
++ **`n` [`Optional[int]`]** — Specifies the order of the denominator $Q$. Defaults
+  to length of field data - m - 1.
++ **`m_frac` [`float`]** — Method for specifying `m` as a fraction of
+  field samples to use as order for numerator. Default is 0.5.
++ **`n_frac` [`Optional[float]`]** — Fraction of field samples to use as order for
+  denominator. No default.
++ **`sampling_interval` [`int`]** — Specifies the interval at which to sample the field data.
+  Defaults to 1.
++ **`start_time` [`int`]** — Specifies the time (in increments of dt) at which
+  to start sampling the field data. Default 0 (beginning of simulation).
++ **`stop_time` [`Optional[int]`]** — Specifies the time (in increments of dt) at which
+  to stop sampling the field data. Default is `None` (end of simulation).
 
 </div>
 

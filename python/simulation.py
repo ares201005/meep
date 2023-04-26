@@ -9,6 +9,7 @@ import sys
 import warnings
 from collections import OrderedDict, namedtuple
 from typing import Callable, List, Optional, Tuple, Union
+from scipy.interpolate import pade
 
 try:
     from collections.abc import Sequence, Iterable
@@ -40,6 +41,8 @@ try:
     do_progress = True
 except ImportError:
     do_progress = False
+
+from matplotlib.axes import Axes
 
 verbosity = Verbosity(mp.cvar, "meep", 1)
 
@@ -86,7 +89,11 @@ def fix_dft_args(args, i):
 
 
 def get_num_args(func):
-    return 2 if isinstance(func, Harminv) else func.__code__.co_argcount
+    return (
+        2
+        if isinstance(func, Harminv) or isinstance(func, PadeDFT)
+        else func.__code__.co_argcount
+    )
 
 
 def vec(*args):
@@ -162,7 +169,7 @@ class DiffractedPlanewave:
         """
         Construct a `DiffractedPlanewave`.
 
-        + **`g` [ list of 3 `integer`s ]** — The diffraction order $(m_x,m_y,m_z)$ corresponding to the wavevector $(k_x+2\\pi m_x/\\Lambda_x,k_y+2\\pi m_y/\\Lambda_y,k_z+2\\pi m_z/\\Lambda_z)$. The diffraction order $m_{x,y,z}$ should be non-zero only in the $d$-1 periodic directions of a $d$ dimensional cell of size $(\\Lambda_x,\\Lambda_y,\\Lambda_z)$ (e.g., a plane in 3d) in which the mode monitor or source extends the entire length of the cell.
+        + **`g` [ list of 3 `integer`s ]** — The diffraction order $(m_x,m_y,m_z)$ corresponding to the wavevector $(k_x+2\\pi m_x/\\Lambda_x,k_y+2\\pi m_y/\\Lambda_y,k_z+2\\pi m_z/\\Lambda_z)$. $(k_x,k_y,k_z)$ is the `k_point` (wavevector specifying the Bloch-periodic boundaries) of the `Simulation` class object. The diffraction order $m_{x,y,z}$ should be non-zero only in the $d$-1 periodic directions of a $d$ dimensional cell of size $(\\Lambda_x,\\Lambda_y,\\Lambda_z)$ (e.g., a plane in 3d) in which the mode monitor or source extends the entire length of the cell.
 
         + **`axis` [ `Vector3` ]** — The plane of incidence for each planewave (used to define the $\\mathcal{S}$ and $\\mathcal{P}$ polarizations below) is defined to be the plane that contains the `axis` vector and the planewave's wavevector. If `None`, `axis` defaults to the first direction that lies in the plane of the monitor or source (e.g., $y$ direction for a $yz$ plane in 3d, either $x$ or $y$ in 2d).
 
@@ -857,6 +864,185 @@ class EigenmodeData:
         return mp.eigenmode_amplitude(self.swigobj, swig_point, component)
 
 
+class PadeDFT:
+    """
+    Padé approximant based spectral extrapolation is implemented as a class with a [`__call__`](#PadeDFT.__call__) method,
+    which allows it to be used as a step function that collects field data from a given
+    point and runs [Padé](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.pade.html)
+    on that data to extract an analytic rational function which approximates the frequency response.
+    For more information about the Padé approximant, see: https://en.wikipedia.org/wiki/Padé_approximant.
+
+    See [`__init__`](#PadeDFT.__init__) for details about constructing a `PadeDFT`.
+
+    In particular, `PadeDFT` stores the discrete time series $\\hat{f}[n]$ corresponding to the given field
+    component as a function of time and expresses it as:
+
+    $$\\hat{f}(\\omega) = \\sum_n \\hat{f}[n] e^{i\\omega n \\Delta t}$$
+
+    The above is a "Taylor-like" polynomial in $n$ with a Fourier basis and
+    coefficients which are the sampled field data. We then compute the Padé approximant
+    to be the analytic form of this function as:
+
+    $$R(f) = R(2 \\pi \\omega) = \\frac{P(f)}{Q(f)}$$
+
+    Where $P$ and $Q$ are polynomials of degree $m$ and $n$, and $m + n + 1$ is the
+    degree of agreement of the Padé approximant to the analytic function $f(2 \\pi \\omega)$. This
+    function $R$ is stored in the callable method `pade_instance.dft`. Note that the computed polynomials
+    $P$ and $Q$ for each spatial point are stored as well in the instance variable `pade_instance.polys`,
+    as a spatial array of dicts: `[{"P": P(t), "Q": Q(t)}]` with no spectral extrapolation performed.
+    Be sure to save a reference to the `Pade` instance if you wish
+    to use the results after the simulation:
+
+    ```py
+    sim = mp.Simulation(...)
+    p = mp.PadeDFT(...)
+    sim.run(p, until=time)
+    # do something with p.dft
+    ```
+    """
+
+    def __init__(
+        self,
+        c: int = None,
+        vol: Volume = None,
+        center: Vector3Type = None,
+        size: Vector3Type = None,
+        m: Optional[int] = None,
+        n: Optional[int] = None,
+        m_frac: float = 0.5,
+        n_frac: Optional[float] = None,
+        sampling_interval: int = 1,
+        start_time: int = 0,
+        stop_time: Optional[int] = None,
+    ):
+        """
+        Construct a Padé DFT object.
+
+        A `PadeDFT` is a step function that collects data from the field component `c`
+        (e.g. `meep.Ex`, etc.) at the given point `pt` (a `Vector3`). Then, at the end
+        of the run, it uses the scipy Padé algorithm to approximate the analytic
+        frequency response at the specified point.
+
+        + **`c` [`component` constant]** — Specifies the field component to use for extrapolation.
+         No default.
+        + **`vol` [`Volume`]** — Specifies the volume over which to accumulate fields
+         (may be 0d, 1d, 2d, or 3d). No default.
+        + **`center` [`Vector3` class]** — Alternative method for specifying volume, using a center point
+        + **`size` [`Vector3` class]** — Alternative method for specifying volume, using a size vector
+        + **`m` [`Optional[int]`]** — Directly pecifies the order of the numerator $P$. If not specified,
+         defaults to the length of aggregated field data times `m_frac`.
+        + **`n` [`Optional[int]`]** — Specifies the order of the denominator $Q$. Defaults
+         to length of field data - m - 1.
+        + **`m_frac` [`float`]** — Method for specifying `m` as a fraction of
+         field samples to use as order for numerator. Default is 0.5.
+        + **`n_frac` [`Optional[float]`]** — Fraction of field samples to use as order for
+         denominator. No default.
+        + **`sampling_interval` [`int`]** — Specifies the interval at which to sample the field data.
+         Defaults to 1.
+        + **`start_time` [`int`]** — Specifies the time (in increments of dt) at which
+         to start sampling the field data. Default 0 (beginning of simulation).
+        + **`stop_time` [`Optional[int]`]** — Specifies the time (in increments of dt) at which
+         to stop sampling the field data. Default is `None` (end of simulation).
+        """
+        self.c = c
+        self.vol = vol
+        self.center = center
+        self.size = size
+        self.m = m
+        self.n = n
+        self.m_frac = m_frac
+        self.n_frac = n_frac
+        self.sampling_interval = sampling_interval
+        self.start_time = start_time
+        self.stop_time = stop_time
+        self.data = []
+        self.data_dt = 0
+        self.dft: Callable = None
+        self.step_func = self._pade()
+
+    def __call__(self, sim, todo):
+        """
+        Allows a Pade instance to be used as a step function.
+        """
+        self.step_func(sim, todo)
+
+    def _collect_pade(self, c, vol, center, size):
+        self.t0 = 0
+
+        def _collect(sim):
+            self.data_dt = sim.meep_time() - self.t0
+            self.t0 = sim.meep_time()
+            self.data.append(sim.get_array(c, vol, center, size))
+
+        return _collect
+
+    def _analyze_pade(self, sim):
+        # Ensure that the field data has dimension (# time steps x (volume dims))
+        self.data = np.atleast_2d(self.data)
+
+        # If the supplied volume is actually a point, np.atleast_2d will have
+        # shape (1, T), we want (T, 1)
+        if np.shape(self.data)[0] == 1:
+            self.data = self.data.T
+
+        # Sample the collected field data and possibly truncate the beginning or
+        # end to avoid transients
+        # TODO(Arjun-Khurana): Create a custom run function that collects field
+        # only at required points in time
+        samples = np.array(
+            self.data[self.start_time : self.stop_time : self.sampling_interval]
+        )
+
+        # Infer the desired behavior for m and n from the supplied arguments
+        if not self.m:
+            if not self.m_frac:
+                raise ValueError("Either m or m_frac must be provided.")
+            self.m = int(len(samples) * self.m_frac)
+        if not self.n:
+            self.n = (
+                int(len(samples) - self.m - 1)
+                if not self.n_frac
+                else int(len(samples) * self.n_frac)
+            )
+
+        # Helper method to be able to use np.apply_along_axis()
+        def _unpack_pade(arr, m, n):
+            P, Q = pade(arr, m, n)
+            return {"P": P, "Q": Q}
+
+        # Apply pade at each point in space, store a dictionary containing the rational function
+        # numerator and denominator at each spatial point
+        self.polys = np.apply_along_axis(_unpack_pade, 0, samples, self.m, self.n)
+
+        # Computes the rational function R(f) from the numerator and denominator
+        # and stores the result at each point in space
+        def _R_f(d, freq):
+            return np.divide(
+                d["P"](
+                    np.exp(
+                        1j * 2 * np.pi * freq * self.sampling_interval * sim.fields.dt
+                    )
+                ),
+                d["Q"](
+                    np.exp(
+                        1j * 2 * np.pi * freq * self.sampling_interval * sim.fields.dt
+                    )
+                ),
+            )
+
+        # Final output is a function of frequency that returns an array with the same size
+        # as the provided volume, with the evaluation of the dft at each point in the volume
+        return lambda freq: np.squeeze(np.vectorize(_R_f)(self.polys, freq))
+
+    def _pade(self):
+        def _p(sim):
+            self.dft = self._analyze_pade(sim)
+
+        f1 = self._collect_pade(self.c, self.vol, self.center, self.size)
+
+        return _combine_step_funcs(at_end(_p), f1)
+
+
 class Harminv:
     """
     Harminv is implemented as a class with a [`__call__`](#Harminv.__call__) method,
@@ -1376,6 +1562,9 @@ class Simulation:
     # on the settings in the Simulation instance. This method must be called on
     # any user-defined Volume before passing it to meep via its `swigobj`.
     def _fit_volume_to_simulation(self, vol: Volume) -> Volume:
+        if self.dimensions == mp.CYLINDRICAL:
+            self.dimensions = 2
+            self.is_cylindrical = True
         return Volume(
             vol.center,
             vol.size,
@@ -2424,6 +2613,13 @@ class Simulation:
             self.init_sim()
         return self.fields.time()
 
+    def timestep(self) -> int:
+        """Return the number of elapsed timesteps."""
+
+        if self.fields is None:
+            self.init_sim()
+        return self.fields.t
+
     def round_time(self):
         if self.fields is None:
             self.init_sim()
@@ -2754,128 +2950,13 @@ class Simulation:
             eps, self.eps_averaging, self.subpixel_tol, self.subpixel_maxeval
         )
 
-    def add_source(self, src):
-        if self.fields is None:
-            self.init_sim()
-
-        if isinstance(src, IndexedSource):
-            self.fields.register_src_time(src.src.swigobj)
-            self.fields.add_srcdata(
-                src.srcdata,
-                src.src.swigobj,
-                src.num_pts,
-                src.amp_arr,
-                src.needs_boundary_fix,
-            )
-            return
-
-        where = Volume(
-            src.center,
-            src.size,
-            dims=self.dimensions,
-            is_cylindrical=self.is_cylindrical,
-        ).swigobj
-
-        if isinstance(src, EigenModeSource):
-            if src.direction < 0:
-                direction = self.fields.normal_direction(where)
-            else:
-                direction = src.direction
-
-            eig_vol = Volume(
-                src.eig_lattice_center,
-                src.eig_lattice_size,
-                self.dimensions,
-                is_cylindrical=self.is_cylindrical,
-            ).swigobj
-
-            if isinstance(src.eig_band, DiffractedPlanewave):
-                eig_band = 1
-                diffractedplanewave = bands_to_diffractedplanewave(where, src.eig_band)
-            elif isinstance(src.eig_band, int):
-                eig_band = src.eig_band
-
-            add_eig_src_args = [
-                src.component,
-                src.src.swigobj,
-                direction,
-                where,
-                eig_vol,
-                eig_band,
-                py_v3_to_vec(
-                    self.dimensions, src.eig_kpoint, is_cylindrical=self.is_cylindrical
-                ),
-                src.eig_match_freq,
-                src.eig_parity,
-                src.eig_resolution,
-                src.eig_tolerance,
-                src.amplitude,
-            ]
-            add_eig_src = functools.partial(
-                self.fields.add_eigenmode_source, *add_eig_src_args
-            )
-
-            if isinstance(src.eig_band, DiffractedPlanewave):
-                add_eig_src(src.amp_func, diffractedplanewave)
-            else:
-                add_eig_src(src.amp_func)
-        elif isinstance(src, GaussianBeamSource):
-            gaussianbeam_args = [
-                py_v3_to_vec(
-                    self.dimensions, src.beam_x0, is_cylindrical=self.is_cylindrical
-                ),
-                py_v3_to_vec(
-                    self.dimensions, src.beam_kdir, is_cylindrical=self.is_cylindrical
-                ),
-                src.beam_w0,
-                src.src.swigobj.frequency().real,
-                self.fields.get_eps(
-                    py_v3_to_vec(self.dimensions, src.center, self.is_cylindrical)
-                ).real,
-                self.fields.get_mu(
-                    py_v3_to_vec(self.dimensions, src.center, self.is_cylindrical)
-                ).real,
-                np.array(
-                    [src.beam_E0.x, src.beam_E0.y, src.beam_E0.z], dtype=np.complex128
-                ),
-            ]
-            gaussianbeam = mp.gaussianbeam(*gaussianbeam_args)
-            add_vol_src_args = [src.src.swigobj, where, gaussianbeam]
-            add_vol_src = functools.partial(
-                self.fields.add_volume_source, *add_vol_src_args
-            )
-            add_vol_src()
-        else:
-            add_vol_src_args = [src.component, src.src.swigobj, where]
-            add_vol_src = functools.partial(
-                self.fields.add_volume_source, *add_vol_src_args
-            )
-
-            if src.amp_func_file:
-                fname_dset = src.amp_func_file.rsplit(":", 1)
-                if len(fname_dset) != 2:
-                    err_msg = (
-                        "Expected a string of the form 'h5filename:dataset'. Got '{}'"
-                    )
-                    raise ValueError(err_msg.format(src.amp_func_file))
-
-                fname, dset = fname_dset
-                if not fname.endswith(".h5"):
-                    fname += ".h5"
-
-                add_vol_src(fname, dset, src.amplitude * 1.0)
-            elif src.amp_func:
-                add_vol_src(src.amp_func, src.amplitude * 1.0)
-            elif src.amp_data is not None:
-                add_vol_src(src.amp_data, src.amplitude * 1.0)
-            else:
-                add_vol_src(src.amplitude * 1.0)
-
     def add_sources(self):
-        if self.fields is None:
-            self.init_sim()  # in case only some processes have IndexedSources
         for s in self.sources:
-            self.add_source(s)
+            if self.fields is None:
+                self.init_sim()  # in case only some processes have IndexedSources
+            s.add_source(
+                self
+            )  # each source type can optionally override its own add_source method, else will default to mp.Source method
         self.fields.require_source_components()  # needed by IndexedSource objects
 
     def _evaluate_dft_objects(self):
@@ -4345,6 +4426,21 @@ class Simulation:
                         py_v3_to_vec(self.dimensions, self.k_point, self.is_cylindrical)
                     )
 
+    def change_m(self, m: float) -> None:
+        """Changes the simulation's `m` number (the angular ϕ dependence)."""
+        self.m = m
+
+        if self.fields:
+            needs_complex_fields = not (not self.m or self.m == 0)
+
+            if needs_complex_fields and self.fields.is_real:
+                self.fields = None
+                self._is_initialized = False
+                self.init_sim()
+            else:
+                if self.m is not None:
+                    self.fields.change_m(m)
+
     def change_sources(self, new_sources):
         """
         Change the list of sources in `Simulation.sources` to `new_sources`, and changes
@@ -4641,22 +4737,24 @@ class Simulation:
 
     def plot2D(
         self,
-        ax=None,
-        output_plane=None,
-        fields=None,
-        labels=False,
-        eps_parameters=None,
-        boundary_parameters=None,
-        source_parameters=None,
-        monitor_parameters=None,
-        field_parameters=None,
-        frequency=None,
-        plot_eps_flag=True,
-        plot_sources_flag=True,
-        plot_monitors_flag=True,
-        plot_boundaries_flag=True,
+        ax: Optional[Axes] = None,
+        output_plane: Optional[Volume] = None,
+        fields: Optional = None,
+        labels: Optional[bool] = False,
+        eps_parameters: Optional[dict] = None,
+        boundary_parameters: Optional[dict] = None,
+        source_parameters: Optional[dict] = None,
+        monitor_parameters: Optional[dict] = None,
+        field_parameters: Optional[dict] = None,
+        colorbar_parameters: Optional[dict] = None,
+        frequency: Optional[float] = None,
+        plot_eps_flag: bool = True,
+        plot_sources_flag: bool = True,
+        plot_monitors_flag: bool = True,
+        plot_boundaries_flag: bool = True,
+        nb: bool = False,
         **kwargs,
-    ):
+    ) -> None:
         """
         Plots a 2D cross section of the simulation domain using `matplotlib`. The plot
         includes the geometry, boundary layers, sources, and monitors. Fields can also be
@@ -4708,6 +4806,7 @@ class Simulation:
               plot. Defaults to the `frequency` parameter of the [Source](#source) object.
             - `resolution=None`: the resolution of the $\\varepsilon$ grid. Defaults to the
               `resolution` of the `Simulation` object.
+            - `colorbar=False`: whether to add a colorbar to the plot's parent Figure based on epsilon values.
         * `boundary_parameters`: a `dict` of optional plotting parameters that override
           the default parameters for the boundary layers.
             - `alpha=1.0`: transparency of boundary layers
@@ -4744,6 +4843,21 @@ class Simulation:
             - `alpha=0.6`: transparency of fields
             - `post_process=np.real`: post processing function to apply to fields (must be
               a function object)
+            - `colorbar=False`: whether to add a colorbar to the plot's parent Figure based on field values.
+        * `colorbar_parameters`:  a `dict` of optional plotting parameters that override the default parameters for
+          the colorbar.
+            - `label=None`: an optional label for the colorbar, defaults to '$\\epsilon_r$' for epsilon and
+            'field values' for fields.
+            - `orientation='vertical'`: the orientation of the colorbar gradient
+            - `extend=None`: make pointed end(s) for out-of-range values. Allowed values are:
+            ['neither', 'both', 'min', 'max']
+            - `format=None`: formatter for tick labels. Can be an fstring (i.e. "{x:.2e}") or a
+            [matplotlib.ticker.ScalarFormatter](https://matplotlib.org/stable/api/ticker_api.html#matplotlib.ticker.ScalarFormatter).
+            - `position='right'`: position of the colorbar with respect to the Axes
+            - `size='5%'`: size of the colorbar in the dimension perpendicular to its `orientation`
+            - `pad='2%'`: fraction of original axes between colorbar and image axes
+        * `nb`: set this to True if plotting in a Jupyter notebook to use ipympl for plotting. Note: this requires
+        ipympl to be installed.
         """
         import meep.visualization as vis
 
@@ -4758,11 +4872,13 @@ class Simulation:
             source_parameters=source_parameters,
             monitor_parameters=monitor_parameters,
             field_parameters=field_parameters,
+            colorbar_parameters=colorbar_parameters,
             frequency=frequency,
             plot_eps_flag=plot_eps_flag,
             plot_sources_flag=plot_sources_flag,
             plot_monitors_flag=plot_monitors_flag,
             plot_boundaries_flag=plot_boundaries_flag,
+            nb=nb,
             **kwargs,
         )
 
@@ -4771,14 +4887,25 @@ class Simulation:
 
         return vis.plot_fields(self, **kwargs)
 
-    def plot3D(self):
+    def plot3D(
+        self, save_to_image: bool = False, image_name: str = "sim.png", **kwargs
+    ):
         """
-        Uses Mayavi to render a 3D simulation domain. The simulation object must be 3D.
+        Uses vispy to render a 3D scene of the simulation object. The simulation object must be 3D.
         Can also be embedded in Jupyter notebooks.
+
+        Args:
+            save_to_image: if True, saves the image to a file
+            image_name: the name of the image file to save to
+
+        kwargs: Camera settings.
+            scale_factor: float, camera zoom factor
+            azimuth: float, azimuthal angle in degrees
+            elevation: float, elevation angle in degrees
         """
         import meep.visualization as vis
 
-        return vis.plot3D(self)
+        return vis.plot3D(self, save_to_image, image_name, **kwargs)
 
     def visualize_chunks(self):
         """
@@ -6099,7 +6226,7 @@ def get_group_masters():
 
     # Check if current worker is a group master
     is_group_master = True if mp.my_rank() == 0 else False
-    group_master_idx = np.zeros((num_workers,), dtype=np.bool)
+    group_master_idx = np.zeros((num_workers,), dtype=np.bool_)
 
     # Formulate send and receive packets
     smsg = [np.array([is_group_master]), ([1] * num_workers, [0] * num_workers)]

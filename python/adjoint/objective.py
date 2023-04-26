@@ -1,9 +1,10 @@
 """Handling of objective functions and objective quantities."""
 import abc
 from collections import namedtuple
+from typing import Callable, List, Optional
 
 import numpy as np
-from meep.simulation import py_v3_to_vec
+from meep.simulation import py_v3_to_vec, FluxData, NearToFarData
 
 import meep as mp
 
@@ -157,19 +158,28 @@ class EigenmodeCoefficient(ObjectiveQuantity):
         kpoint_func_overlap_idx: the index of the mode coefficient to return when
           specifying `kpoint_func`. When specified, this overrides the effect of
           `forward` and should have a value of either 0 or 1.
+        subtracted_dft_fields: the DFT fields obtained using `get_flux_data` from
+          a previous normalization run. This is subtracted from the DFT fields
+          of this mode monitor in order to improve the accuracy of the
+          reflectance measurement (i.e., the $S_{11}$ scattering parameter).
+          Default is None.
     """
 
     def __init__(
         self,
-        sim,
-        volume,
-        mode,
-        forward=True,
-        kpoint_func=None,
-        kpoint_func_overlap_idx=0,
-        decimation_factor=0,
+        sim: mp.Simulation,
+        volume: mp.Volume,
+        mode: int,
+        forward: Optional[bool] = True,
+        kpoint_func: Optional[Callable] = None,
+        kpoint_func_overlap_idx: Optional[int] = 0,
+        decimation_factor: Optional[int] = 0,
+        subtracted_dft_fields: Optional[FluxData] = None,
         **kwargs
     ):
+        """
+        + **`sim` [ `Simulation` ]** —
+        """
         super().__init__(sim)
         if kpoint_func_overlap_idx not in [0, 1]:
             raise ValueError(
@@ -185,6 +195,7 @@ class EigenmodeCoefficient(ObjectiveQuantity):
         self._monitor = None
         self._cscale = None
         self.decimation_factor = decimation_factor
+        self.subtracted_dft_fields = subtracted_dft_fields
 
     def register_monitors(self, frequencies):
         self._frequencies = np.asarray(frequencies)
@@ -194,6 +205,11 @@ class EigenmodeCoefficient(ObjectiveQuantity):
             yee_grid=True,
             decimation_factor=self.decimation_factor,
         )
+        if self.subtracted_dft_fields is not None:
+            self.sim.load_minus_flux_data(
+                self._monitor,
+                self.subtracted_dft_fields,
+            )
         return self._monitor
 
     def place_adjoint_source(self, dJ):
@@ -268,12 +284,22 @@ class EigenmodeCoefficient(ObjectiveQuantity):
 
 
 class FourierFields(ObjectiveQuantity):
-    def __init__(self, sim, volume, component, yee_grid=False, decimation_factor=0):
+    def __init__(
+        self,
+        sim: mp.Simulation,
+        volume: mp.Volume,
+        component: List[int],
+        yee_grid: Optional[bool] = False,
+        decimation_factor: Optional[int] = 0,
+        subtracted_dft_fields: Optional[FluxData] = None,
+    ):
+        """ """
         super().__init__(sim)
         self.volume = sim._fit_volume_to_simulation(volume)
         self.component = component
         self.yee_grid = yee_grid
         self.decimation_factor = decimation_factor
+        self.subtracted_dft_fields = subtracted_dft_fields
 
     def register_monitors(self, frequencies):
         self._frequencies = np.asarray(frequencies)
@@ -284,6 +310,11 @@ class FourierFields(ObjectiveQuantity):
             yee_grid=self.yee_grid,
             decimation_factor=self.decimation_factor,
         )
+        if self.subtracted_dft_fields is not None:
+            self.sim.load_minus_flux_data(
+                self._monitor,
+                self.subtracted_dft_fields,
+            )
         return self._monitor
 
     def place_adjoint_source(self, dJ):
@@ -354,20 +385,37 @@ class FourierFields(ObjectiveQuantity):
 
 
 class Near2FarFields(ObjectiveQuantity):
-    def __init__(self, sim, Near2FarRegions, far_pts, decimation_factor=0):
+    def __init__(
+        self,
+        sim: mp.Simulation,
+        Near2FarRegions: List[mp.Near2FarRegion],
+        far_pts: List[mp.Vector3],
+        nperiods: Optional[int] = 1,
+        decimation_factor: Optional[int] = 0,
+        norm_near_fields: Optional[NearToFarData] = None,
+    ):
+        """ """
         super().__init__(sim)
         self.Near2FarRegions = Near2FarRegions
         self.far_pts = far_pts  # list of far pts
         self._nfar_pts = len(far_pts)
         self.decimation_factor = decimation_factor
+        self.norm_near_fields = norm_near_fields
+        self.nperiods = nperiods
 
     def register_monitors(self, frequencies):
         self._frequencies = np.asarray(frequencies)
         self._monitor = self.sim.add_near2far(
             self._frequencies,
             *self.Near2FarRegions,
+            nperiods=self.nperiods,
             decimation_factor=self.decimation_factor,
         )
+        if self.norm_near_fields is not None:
+            self.sim.load_minus_near2far_data(
+                self._monitor,
+                self.norm_near_fields,
+            )
         return self._monitor
 
     def place_adjoint_source(self, dJ):
@@ -420,7 +468,10 @@ class Near2FarFields(ObjectiveQuantity):
 
 
 class LDOS(ObjectiveQuantity):
-    def __init__(self, sim, decimation_factor=0, **kwargs):
+    def __init__(
+        self, sim: mp.Simulation, decimation_factor: Optional[int] = 0, **kwargs
+    ):
+        """ """
         super().__init__(sim)
         self.decimation_factor = decimation_factor
         self.srckwarg = kwargs

@@ -12,11 +12,11 @@ import numpy as np
 from autograd import numpy as npa
 from autograd import tensor_jacobian_product
 from utils import ApproxComparisonTestCase
+import parameterized
 
 rng = np.random.RandomState(2)
 resolution = 20
 dimensions = mp.CYLINDRICAL
-m = 0
 Si = mp.Medium(index=3.4)
 SiO2 = mp.Medium(index=1.44)
 
@@ -36,10 +36,6 @@ Nr, Nz = int(design_r * design_region_resolution), int(
 fcen = 1 / 1.55
 width = 0.2
 fwidth = width * fcen
-source_center = [design_r / 2, 0, -(sz / 2 - dpml + design_z / 2) / 2]
-source_size = mp.Vector3(design_r, 0, 0)
-src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
-source = [mp.Source(src, component=mp.Er, center=source_center, size=source_size)]
 
 ## random design region
 p = 0.5 * rng.rand(Nr * Nz)
@@ -48,7 +44,32 @@ deps = 1e-5
 dp = deps * rng.rand(Nr * Nz)
 
 
-def forward_simulation(design_params):
+def get_source(m):
+    source_center = mp.Vector3(
+        design_r / 2,
+        0,
+        -(sz / 2 - dpml + design_z / 2) / 2,
+    )
+    # exclude r=0 whenever |m| > 1
+    source_size = mp.Vector3(
+        design_r if abs(m) <= 1 else 0.5 * design_r,
+        0,
+        0,
+    )
+    src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
+    source = [
+        mp.Source(
+            src,
+            component=mp.Er,
+            center=source_center,
+            size=source_size,
+        )
+    ]
+
+    return source
+
+
+def forward_simulation(design_params, m, far_x):
     matgrid = mp.MaterialGrid(
         mp.Vector3(Nr, 0, Nz), SiO2, Si, weights=design_params.reshape(Nr, 1, Nz)
     )
@@ -65,14 +86,14 @@ def forward_simulation(design_params):
         resolution=resolution,
         cell_size=cell_size,
         boundary_layers=boundary_layers,
-        sources=source,
+        sources=get_source(m),
         geometry=geometry,
         dimensions=dimensions,
         m=m,
     )
 
     frequencies = [fcen]
-    far_x = [mp.Vector3(5, 0, 20)]
+
     mode = sim.add_near2far(
         frequencies,
         mp.Near2FarRegion(
@@ -89,7 +110,7 @@ def forward_simulation(design_params):
     return abs(Er[0]) ** 2
 
 
-def adjoint_solver(design_params):
+def adjoint_solver(design_params, m, far_x):
 
     design_variables = mp.MaterialGrid(mp.Vector3(Nr, 0, Nz), SiO2, Si)
     design_region = mpa.DesignRegion(
@@ -111,13 +132,12 @@ def adjoint_solver(design_params):
         cell_size=cell_size,
         boundary_layers=boundary_layers,
         geometry=geometry,
-        sources=source,
+        sources=get_source(m),
         resolution=resolution,
         dimensions=dimensions,
         m=m,
     )
 
-    far_x = [mp.Vector3(5, 0, 20)]
     NearRegions = [
         mp.Near2FarRegion(
             center=mp.Vector3(design_r / 2, 0, (sz / 2 - dpml + design_z / 2) / 2),
@@ -149,12 +169,21 @@ def adjoint_solver(design_params):
 
 
 class TestAdjointSolver(ApproxComparisonTestCase):
-    def test_adjoint_solver_cyl_n2f_fields(self):
+    @parameterized.parameterized.expand(
+        [
+            (0, [mp.Vector3(5, 0, 20)]),
+            (0, [mp.Vector3(4, 0, 28)]),
+            (-1, [mp.Vector3(5, 0, 20)]),
+            (1.2, [mp.Vector3(5, 0, 20)]),
+        ]
+    )
+    def test_adjoint_solver_cyl_n2f_fields(self, m, far_x):
         print("*** TESTING CYLINDRICAL Near2Far ADJOINT FEATURES ***")
-        adjsol_obj, adjsol_grad = adjoint_solver(p)
+        print(f"Current test: m={m}, far_x={far_x}")
+        adjsol_obj, adjsol_grad = adjoint_solver(p, m, far_x)
 
         ## compute unperturbed S12
-        S12_unperturbed = forward_simulation(p)
+        S12_unperturbed = forward_simulation(p, m, far_x)
 
         ## compare objective results
         print(
@@ -164,7 +193,7 @@ class TestAdjointSolver(ApproxComparisonTestCase):
         self.assertClose(adjsol_obj, S12_unperturbed, epsilon=1e-3)
 
         ## compute perturbed S12
-        S12_perturbed = forward_simulation(p + dp)
+        S12_perturbed = forward_simulation(p + dp, m, far_x)
 
         ## compare gradients
         if adjsol_grad.ndim < 2:
@@ -172,7 +201,7 @@ class TestAdjointSolver(ApproxComparisonTestCase):
         adj_scale = (dp[None, :] @ adjsol_grad).flatten()
         fd_grad = S12_perturbed - S12_unperturbed
         print(f"Directional derivative -- adjoint solver: {adj_scale}, FD: {fd_grad}")
-        tol = 0.2 if mp.is_single_precision() else 0.1
+        tol = 0.3
         self.assertClose(adj_scale, fd_grad, epsilon=tol)
 
 

@@ -1,3 +1,4 @@
+from typing import Union, Tuple
 import functools
 import math
 import numbers
@@ -6,9 +7,7 @@ import warnings
 from collections import namedtuple
 from copy import deepcopy
 from numbers import Number
-
 import numpy as np
-
 import meep as mp
 
 FreqRange = namedtuple("FreqRange", ["min", "max"])
@@ -587,15 +586,15 @@ class MaterialGrid:
 
     def __init__(
         self,
-        grid_size,
-        medium1,
-        medium2,
-        weights=None,
-        grid_type="U_DEFAULT",
-        do_averaging=True,
-        beta=0,
-        eta=0.5,
-        damping=0,
+        grid_size: Union[Vector3, Tuple[float, ...]],
+        medium1: Medium,
+        medium2: Medium,
+        weights: np.ndarray = None,
+        grid_type: str = "U_DEFAULT",
+        do_averaging: bool = True,
+        beta: float = 0,
+        eta: float = 0.5,
+        damping: float = 0,
     ):
         """
         Creates a `MaterialGrid` object.
@@ -610,6 +609,7 @@ class MaterialGrid:
         ![](images/material_grid.png#center)
 
         Elements of the `weights` array must be in the range [0,1] where 0 is `medium1` and 1 is `medium2`.
+        An array of boolean values `False` and `True` will be converted to 0 and 1, respectively.
         The `weights` array is used to define a linear interpolation from `medium1` to `medium2`.
         Two material types are supported: (1) frequency-independent isotropic $\\varepsilon$ (`epsilon_diag`
         and `epsilon_offdiag` are interpolated) and (2) `LorentzianSusceptibility` (`sigma` and `sigma_offdiag`
@@ -621,7 +621,8 @@ class MaterialGrid:
         `do_averaging=True`. If you want to use a material grid to define a (nearly) discontinuous,
         piecewise-constant material that is *either* `medium1` or `medium2` almost everywhere, you can
         optionally enable a (smoothed) *projection* feature by setting the parameter `beta` to a
-        positive value. When the projection feature is enabled, the weights $u(x)$ can be thought of as a
+        positive value. The default is no projection (`beta=0`). When the projection feature is
+        enabled, the weights $u(x)$ can be thought of as a
         [level-set function](https://en.wikipedia.org/wiki/Level-set_method) defining an interface at
         $u(x)=\\eta$ with a smoothing factor $\\beta$ where $\\beta=+\\infty$ gives an unsmoothed,
         discontinuous interface. The projection operator is $(\\tanh(\\beta\\times\\eta)
@@ -630,7 +631,12 @@ class MaterialGrid:
         ($\\eta$: offset for erosion/dilation). The level set provides a general approach for defining
         a *discontinuous* function from otherwise continuously varying (via the bilinear interpolation)
         grid values. Subpixel smoothing is fast and accurate because it exploits an analytic formulation
-        for level-set functions.
+        for level-set functions. Note that when subpixel smoothing is enabled via `do_averaging=True`,
+        projecting the `weights` is done internally using the `beta` parameter. It is therefore not
+        necessary to manually project the `weights` outside of `MaterialGrid`. However, visualizing
+        the `weights` used to define the structure does require manually projecting the `weights` yourself.
+        (Alternatively, you can output the actual structure using [`plot2D`](#data-visualization) or
+        [`output_epsilon`](#output-functions_1).)
 
         A nonzero `damping` term creates an artificial conductivity $\\sigma = u(1-u)*$`damping`, which acts as
         dissipation loss that penalizes intermediate pixel values of non-binarized structures. The value of
@@ -671,7 +677,7 @@ class MaterialGrid:
                 )
             )
         else:
-            self.weights = self.check_weights(weights).flatten().astype(np.float64)
+            self.weights = self.check_weights(weights.flatten().astype(np.float64))
 
         grid_type_dict = {"U_MIN": 0, "U_PROD": 1, "U_MEAN": 2, "U_DEFAULT": 3}
         if grid_type not in grid_type_dict:
@@ -684,7 +690,7 @@ class MaterialGrid:
 
         self.swigobj = None
 
-    def update_weights(self, x):
+    def update_weights(self, x: np.ndarray):
         """
         Reset the `weights` to `x`.
         """

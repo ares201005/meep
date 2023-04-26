@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -272,6 +272,27 @@ static void src_vol_chunkloop(fields_chunk *fc, int ichunk, component c, ivec is
     vec rel_loc = loc - data->center;
     amps_array[idx_vol] = IVEC_LOOP_WEIGHT(s0, s1, e0, e1, 1) * amp * data->A(rel_loc);
 
+    // check for invalid sources at r=0 in cylindrical coordinates
+    if (fc->gv.dim == Dcyl && loc.r() == 0 && amps_array[idx_vol] != 0.0) {
+      if (fc->m == 0) {
+        if (component_direction(c) == R || component_direction(c) == P)
+          meep::abort("Not possible to place a %s source at r=0 in "
+                      "cylindrical coordinates for m = 0.",
+                      component_name(c));
+      }
+      else if (fabs(fc->m) == 1.0) {
+        if (component_direction(c) == Z)
+          meep::abort("Not possible to place a %s source at r=0 in "
+                      "cylindrical coordinates for |m| = 1.0.",
+                      component_name(c));
+      }
+      else {
+        meep::abort("Not possible to place a source at r=0 in "
+                    "cylindrical coordinates for m = %g.",
+                    fc->m);
+      }
+    }
+
     /* for "D" sources, multiply by epsilon.  FIXME: this is not quite
        right because it doesn't handle non-diagonal chi1inv!
        similarly, for "B" sources, multiply by mu. */
@@ -286,7 +307,7 @@ static void src_vol_chunkloop(fields_chunk *fc, int ichunk, component c, ivec is
   if (idx_vol > npts)
     meep::abort("add_volume_source: computed wrong npts (%zd vs. %zd)", npts, idx_vol);
 
-  field_type ft = is_magnetic(c) ? B_stuff : D_stuff;
+  field_type ft = is_H_or_B(c) ? B_stuff : D_stuff;
   fc->add_source(ft, src_vol(c, data->src, std::move(index_array), std::move(amps_array)));
 }
 
@@ -302,7 +323,7 @@ void fields::add_srcdata(struct sourcedata cur_data, src_time *src, size_t n,
   std::vector<ptrdiff_t> index_arr(cur_data.idx_arr);
   std::vector<std::complex<double> > amplitudes(amp_arr, amp_arr + n);
   component c = cur_data.near_fd_comp;
-  field_type ft = is_magnetic(c) ? B_stuff : D_stuff;
+  field_type ft = is_H_or_B(c) ? B_stuff : D_stuff;
   if (0 > cur_data.fc_idx or cur_data.fc_idx >= num_chunks)
     meep::abort("fields chunk index out of range");
   fields_chunk *fc = chunks[cur_data.fc_idx];
