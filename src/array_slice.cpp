@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -281,13 +281,11 @@ static void get_array_slice_chunkloop(fields_chunk *fc, int ichnk, component cgr
   LOOP_OVER_DIRECTIONS(permute.dim, d) { permute.set_direction(d, abs(permute.in_direction(d))); }
 
   // compute the size of the chunk to output, and its strides etc.
-  size_t slice_size = 1;
   for (int i = 0; i < data->rank; ++i) {
     direction d = data->ds[i];
     int isd = isS.in_direction(d), ied = ieS.in_direction(d);
     start[i] = (std::min(isd, ied) - data->min_corner.in_direction(d)) / 2;
     count[i] = abs(ied - isd) / 2 + 1;
-    slice_size *= count[i];
     if (ied < isd) offset[permute.in_direction(d)] = count[i] - 1;
   }
 
@@ -689,7 +687,7 @@ void *fields::do_get_array_slice(const volume &where, std::vector<component> com
   }
   if (vslice) {
     memcpy(vslice, vslice_uncollapsed, slice_size * elem_size * sizeof(realnum));
-    delete[](realnum *) vslice_uncollapsed;
+    delete[] (realnum *)vslice_uncollapsed;
   }
   else
     vslice = vslice_uncollapsed;
@@ -774,7 +772,7 @@ complex<realnum> *fields::get_source_slice(const volume &where, component source
 
   if (slice) {
     memcpy(slice, slice_collapsed, 2 * slice_size * sizeof(realnum));
-    delete[](complex<realnum> *) slice_collapsed;
+    delete[] (complex<realnum> *)slice_collapsed;
   }
   else
     slice = slice_collapsed;
@@ -788,6 +786,8 @@ complex<realnum> *fields::get_source_slice(const volume &where, component source
 /***************************************************************/
 /***************************************************************/
 std::vector<double> fields::get_array_metadata(const volume &where) {
+  if (where.dim == Dcyl)
+    meep::abort("get_array_metadata does not support cylindrical coordinates.");
 
   /* get extremal corners of subgrid and array of weights, collapsed if necessary */
   size_t dims[3];

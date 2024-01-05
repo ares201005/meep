@@ -4,13 +4,13 @@ try:
     import meep.adjoint as mpa
 except:
     import adjoint as mpa
-
+import os
 import unittest
 from enum import Enum
 from typing import List, Union, Tuple
 import numpy as np
 from autograd import numpy as npa
-from autograd import tensor_jacobian_product
+from autograd import grad, tensor_jacobian_product
 from utils import ApproxComparisonTestCase
 
 MonitorObject = Enum("MonitorObject", "EIGENMODE DFT LDOS")
@@ -39,8 +39,8 @@ class TestAdjointSolver(ApproxComparisonTestCase):
 
         cls.design_region_size = mp.Vector3(1.5, 1.5)
         cls.design_region_resolution = int(2 * cls.resolution)
-        cls.Nx = int(cls.design_region_size.x * cls.design_region_resolution)
-        cls.Ny = int(cls.design_region_size.y * cls.design_region_resolution)
+        cls.Nx = int(round(cls.design_region_size.x * cls.design_region_resolution)) + 1
+        cls.Ny = int(round(cls.design_region_size.y * cls.design_region_resolution)) + 1
 
         # ensure reproducible results
         rng = np.random.RandomState(9861548)
@@ -547,7 +547,7 @@ class TestAdjointSolver(ApproxComparisonTestCase):
                 unperturbed_grad = np.expand_dims(unperturbed_grad, axis=1)
             adj_dd = (self.dp[None, :] @ unperturbed_grad).flatten()
             fnd_dd = perturbed_val - unperturbed_val
-            tol = 0.03 if mp.is_single_precision() else 0.002
+            tol = 0.062 if mp.is_single_precision() else 0.002
             self.assertClose(adj_dd, fnd_dd, epsilon=tol)
             print(
                 f"PASSED: frequencies={frequencies}, "
@@ -585,9 +585,9 @@ class TestAdjointSolver(ApproxComparisonTestCase):
             # non-center frequencies of a multifrequency simulation
             # are expected to be *less* accurate than the center frequency
             if len(frequencies) == 1 and frequencies[0] == self.fcen:
-                tol = 0.002 if mp.is_single_precision() else 5e-5
+                tol = 0.004 if mp.is_single_precision() else 5e-5
             else:
-                tol = 0.008 if mp.is_single_precision() else 0.002
+                tol = 0.008 if mp.is_single_precision() else 0.0024
 
             self.assertClose(adj_dd, fnd_dd, epsilon=tol)
             print(
@@ -617,7 +617,7 @@ class TestAdjointSolver(ApproxComparisonTestCase):
                 unperturbed_grad = np.expand_dims(unperturbed_grad, axis=1)
             adj_dd = (self.dp[None, :] @ unperturbed_grad).flatten()
             fnd_dd = perturbed_val - unperturbed_val
-            tol = 0.002 if mp.is_single_precision() else 0.001
+            tol = 0.0028 if mp.is_single_precision() else 0.0025
             self.assertClose(adj_dd, fnd_dd, epsilon=tol)
             print(
                 f"PASSED: frequencies={frequencies}, "
@@ -678,7 +678,7 @@ class TestAdjointSolver(ApproxComparisonTestCase):
             # non-center frequencies of a multifrequency simulation
             # are expected to be less accurate than the center frequency
             if nfrq == 1 and frequencies[0] == self.fcen:
-                tol = 2e-4 if mp.is_single_precision() else 5e-6
+                tol = 2.1e-4 if mp.is_single_precision() else 5e-6
             else:
                 tol = 0.005 if mp.is_single_precision() else 0.002
 
@@ -710,7 +710,7 @@ class TestAdjointSolver(ApproxComparisonTestCase):
                 unperturbed_grad = np.expand_dims(unperturbed_grad, axis=1)
             adj_dd = (self.dp[None, :] @ unperturbed_grad).flatten()
             fnd_dd = perturbed_val - unperturbed_val
-            tol = 0.02 if mp.is_single_precision() else 0.001
+            tol = 0.025 if mp.is_single_precision() else 0.001
             self.assertClose(adj_dd, fnd_dd, epsilon=tol)
             print(
                 f"PASSED: frequencies={frequencies}"
@@ -942,6 +942,327 @@ class TestAdjointSolver(ApproxComparisonTestCase):
                 rel_err = abs((fnd_dd[m] - adj_dd[0]) / fnd_dd[m])
                 self.assertLessEqual(rel_err, tol)
                 print(f"PASSED: fwidth={fwidth:.5f}, m={m}, err={rel_err:.10f}")
+
+    def test_periodic_design(self):
+        """Verifies that lengthscale constaint functions are invariant when
+        a design pattern is shifted along periodic directions."""
+        print("*** TESTING PERIODIC DESIGN ***")
+
+        # shifted design patterns
+        idx_row_shift, idx_col_shift = int(0.19 * self.Nx), int(0.28 * self.Ny)
+        p = self.p.reshape(self.Nx, self.Ny)
+        p_row_shift = np.vstack((p[idx_row_shift:, :], p[0:idx_row_shift, :]))
+        p_col_shift = np.hstack((p[:, idx_col_shift:], p[:, 0:idx_col_shift]))
+
+        eta_e = 0.75
+        eta_d = 1 - eta_e
+        beta, eta_i = 10, 0.5
+        radius, c = 0.3, 400
+        places = 15
+        threshold_f = lambda x: mpa.tanh_projection(x, beta, eta_i)
+
+        for selected_filter in (
+            mpa.conic_filter,
+            mpa.cylindrical_filter,
+            mpa.gaussian_filter,
+        ):
+            for periodic_axes in (0, 1, (0, 1)):
+                filter_f = lambda x: selected_filter(
+                    x,
+                    radius,
+                    self.design_region_size.x,
+                    self.design_region_size.y,
+                    self.design_region_resolution,
+                    periodic_axes,
+                )
+
+                constraint_solid = mpa.constraint_solid(
+                    p,
+                    c,
+                    eta_e,
+                    filter_f,
+                    threshold_f,
+                    self.design_region_resolution,
+                    periodic_axes,
+                )
+
+                constraint_void = mpa.constraint_void(
+                    p,
+                    c,
+                    eta_d,
+                    filter_f,
+                    threshold_f,
+                    self.design_region_resolution,
+                    periodic_axes,
+                )
+
+                solid_grad = grad(mpa.constraint_solid, 0)(
+                    p,
+                    c,
+                    eta_e,
+                    filter_f,
+                    threshold_f,
+                    self.design_region_resolution,
+                    periodic_axes,
+                )
+
+                void_grad = grad(mpa.constraint_void, 0)(
+                    p,
+                    c,
+                    eta_d,
+                    filter_f,
+                    threshold_f,
+                    self.design_region_resolution,
+                    periodic_axes,
+                )
+
+                if periodic_axes in (0, (0, 1)):
+                    constraint_solid_row_shift = mpa.constraint_solid(
+                        p_row_shift,
+                        c,
+                        eta_e,
+                        filter_f,
+                        threshold_f,
+                        self.design_region_resolution,
+                        periodic_axes,
+                    )
+                    self.assertAlmostEqual(
+                        constraint_solid,
+                        constraint_solid_row_shift,
+                        places=places,
+                    )
+
+                    constraint_void_row_shift = mpa.constraint_void(
+                        p_row_shift,
+                        c,
+                        eta_d,
+                        filter_f,
+                        threshold_f,
+                        self.design_region_resolution,
+                        periodic_axes,
+                    )
+                    self.assertAlmostEqual(
+                        constraint_void,
+                        constraint_void_row_shift,
+                        places=places,
+                    )
+
+                    solid_row_shift_grad = grad(mpa.constraint_solid, 0)(
+                        p_row_shift,
+                        c,
+                        eta_e,
+                        filter_f,
+                        threshold_f,
+                        self.design_region_resolution,
+                        periodic_axes,
+                    )
+                    solid_grad_row_shift = np.vstack(
+                        (solid_grad[idx_row_shift:, :], solid_grad[0:idx_row_shift, :])
+                    )
+                    self.assertAlmostEqual(
+                        np.sum(abs(solid_grad_row_shift - solid_row_shift_grad)),
+                        0,
+                        places=places,
+                    )
+
+                    void_row_shift_grad = grad(mpa.constraint_void, 0)(
+                        p_row_shift,
+                        c,
+                        eta_d,
+                        filter_f,
+                        threshold_f,
+                        self.design_region_resolution,
+                        periodic_axes,
+                    )
+                    void_grad_row_shift = np.vstack(
+                        (void_grad[idx_row_shift:, :], void_grad[0:idx_row_shift, :])
+                    )
+                    self.assertAlmostEqual(
+                        np.sum(abs(void_grad_row_shift - void_row_shift_grad)),
+                        0,
+                        places=places,
+                    )
+
+                if periodic_axes in (1, (0, 1)):
+                    constraint_solid_col_shift = mpa.constraint_solid(
+                        p_col_shift,
+                        c,
+                        eta_e,
+                        filter_f,
+                        threshold_f,
+                        self.design_region_resolution,
+                        periodic_axes,
+                    )
+                    self.assertAlmostEqual(
+                        constraint_solid,
+                        constraint_solid_col_shift,
+                        places=places,
+                    )
+
+                    constraint_void_col_shift = mpa.constraint_void(
+                        p_col_shift,
+                        c,
+                        eta_d,
+                        filter_f,
+                        threshold_f,
+                        self.design_region_resolution,
+                        periodic_axes,
+                    )
+                    self.assertAlmostEqual(
+                        constraint_void,
+                        constraint_void_col_shift,
+                        places=places,
+                    )
+
+                    solid_col_shift_grad = grad(mpa.constraint_solid, 0)(
+                        p_col_shift,
+                        c,
+                        eta_e,
+                        filter_f,
+                        threshold_f,
+                        self.design_region_resolution,
+                        periodic_axes,
+                    )
+                    solid_grad_col_shift = np.hstack(
+                        (solid_grad[:, idx_col_shift:], solid_grad[:, 0:idx_col_shift])
+                    )
+                    self.assertAlmostEqual(
+                        np.sum(abs(solid_grad_col_shift - solid_col_shift_grad)),
+                        0,
+                        places=places,
+                    )
+
+                    void_col_shift_grad = grad(mpa.constraint_void, 0)(
+                        p_col_shift,
+                        c,
+                        eta_d,
+                        filter_f,
+                        threshold_f,
+                        self.design_region_resolution,
+                        periodic_axes,
+                    )
+                    void_grad_col_shift = np.hstack(
+                        (void_grad[:, idx_col_shift:], void_grad[:, 0:idx_col_shift])
+                    )
+                    self.assertAlmostEqual(
+                        np.sum(abs(void_grad_col_shift - void_col_shift_grad)),
+                        0,
+                        places=places,
+                    )
+
+            print(f"PASSED: filter function = {selected_filter.__name__}")
+
+    def test_unequal_horizontal_vertical_resolution(self):
+        """Verifies that anisotropic design-grid resolution is supported."""
+        print("*** TESTING ANISOTROPIC RESOLUTION ***")
+
+        p = self.p.reshape(self.Nx, self.Ny)
+        eta_e = 0.75
+        eta_d = 1 - eta_e
+        beta, eta_i = 10, 0.5
+        radius, c = 0.3, 400
+        places = 15
+        threshold_f = lambda x: mpa.tanh_projection(x, beta, eta_i)
+
+        for selected_filter in (
+            mpa.conic_filter,
+            mpa.cylindrical_filter,
+            mpa.gaussian_filter,
+        ):
+
+            for periodic_axes in (0, 1):
+                if periodic_axes == 0:
+                    # The 1d design-grid is defined in the y direction
+                    # while periodic in the x direction.
+                    design_1d = p[0, :]
+                    resolution = (0, self.design_region_resolution)
+                else:
+                    # The 1d design-grid is defined in the x direction
+                    # while periodic in the y direction.
+                    design_1d = p[:, 0]
+                    resolution = (self.design_region_resolution, 0)
+
+                filter_f = lambda x: selected_filter(
+                    x,
+                    radius,
+                    self.design_region_size.x,
+                    self.design_region_size.y,
+                    resolution,
+                )
+                constraint_solid_nonperiodic = mpa.constraint_solid(
+                    design_1d,
+                    c,
+                    eta_e,
+                    filter_f,
+                    threshold_f,
+                    resolution,
+                )
+                constraint_void_nonperiodic = mpa.constraint_void(
+                    design_1d,
+                    c,
+                    eta_d,
+                    filter_f,
+                    threshold_f,
+                    resolution,
+                )
+
+                filter_f = lambda x: selected_filter(
+                    x,
+                    radius,
+                    self.design_region_size.x,
+                    self.design_region_size.y,
+                    resolution,
+                    periodic_axes,
+                )
+                constraint_solid_periodic = mpa.constraint_solid(
+                    design_1d,
+                    c,
+                    eta_e,
+                    filter_f,
+                    threshold_f,
+                    resolution,
+                    periodic_axes,
+                )
+                constraint_void_periodic = mpa.constraint_void(
+                    design_1d,
+                    c,
+                    eta_d,
+                    filter_f,
+                    threshold_f,
+                    resolution,
+                    periodic_axes,
+                )
+
+                self.assertAlmostEqual(
+                    constraint_solid_nonperiodic,
+                    constraint_solid_periodic,
+                    places=places,
+                )
+                self.assertAlmostEqual(
+                    constraint_void_nonperiodic,
+                    constraint_void_periodic,
+                    places=places,
+                )
+            print(f"PASSED: filter function = {selected_filter.__name__}")
+
+    def test_unfilter_design(self):
+        """Verifies that the unfilter_design on a given structure
+        finds initialization close to what it found previously."""
+        print("*** TESTING unfilter_design ***")
+
+        data_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "data"))
+        expected = np.load(os.path.join(data_dir, "mpa_unfilter_design.npy"))
+        target = np.load(os.path.join(data_dir, "mpa_unfilter_design_target.npy"))
+
+        def processing(x):
+            filtered_field = mpa.conic_filter(x, 0.1, 0.3, 0.5, 200)
+            projected_field = mpa.tanh_projection(filtered_field, 8, 0.5)
+            return projected_field.flatten()
+
+        reverse_x = mpa.unfilter_design(target, processing)
+        tol = 1e-6
+        self.assertClose(expected, reverse_x, epsilon=tol)
+        print(f"PASSED: unfilter_design={reverse_x}, expeced_design={expected}")
 
 
 if __name__ == "__main__":

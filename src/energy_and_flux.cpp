@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -110,6 +110,7 @@ void fields_chunk::backup_component(component c) {
       BACKUP(f_u);
       BACKUP(f_w);
       BACKUP(f_cond);
+      BACKUP(f_bfast);
 
 #undef BACKUP
     }
@@ -126,6 +127,7 @@ void fields_chunk::restore_component(component c) {
     RESTORE(f_u);
     RESTORE(f_w);
     RESTORE(f_cond);
+    RESTORE(f_bfast);
 
 #undef RESTORE
   }

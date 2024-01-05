@@ -1,14 +1,19 @@
-import functools
-import math
-import numbers
-import operator
-import warnings
+"""
+A collection of geometry- and material-related objects and helper routines.
+"""
+
+from __future__ import annotations
+
 from collections import namedtuple
 from copy import deepcopy
+import functools
+import math
 from numbers import Number
+import operator
+from typing import List, NamedTuple, Optional, Tuple, Union
+import warnings
 
 import numpy as np
-
 import meep as mp
 
 FreqRange = namedtuple("FreqRange", ["min", "max"])
@@ -312,70 +317,70 @@ class Medium:
 
     def __init__(
         self,
-        epsilon_diag=Vector3(1, 1, 1),
-        epsilon_offdiag=Vector3(),
-        mu_diag=Vector3(1, 1, 1),
-        mu_offdiag=Vector3(),
-        E_susceptibilities=None,
-        H_susceptibilities=None,
-        E_chi2_diag=Vector3(),
-        E_chi3_diag=Vector3(),
-        H_chi2_diag=Vector3(),
-        H_chi3_diag=Vector3(),
-        D_conductivity_diag=Vector3(),
-        D_conductivity_offdiag=Vector3(),
-        B_conductivity_diag=Vector3(),
-        B_conductivity_offdiag=Vector3(),
-        epsilon=None,
-        index=None,
-        mu=None,
-        chi2=None,
-        chi3=None,
-        D_conductivity=None,
-        B_conductivity=None,
-        E_chi2=None,
-        E_chi3=None,
-        H_chi2=None,
-        H_chi3=None,
-        valid_freq_range=FreqRange(min=-mp.inf, max=mp.inf),
+        epsilon_diag: Vector3 = Vector3(1.0, 1.0, 1.0),
+        epsilon_offdiag: Vector3 = Vector3(),
+        mu_diag: Vector3 = Vector3(1.0, 1.0, 1.0),
+        mu_offdiag: Vector3 = Vector3(),
+        E_susceptibilities: Optional[List[Susceptibility]] = None,
+        H_susceptibilities: Optional[List[Susceptibility]] = None,
+        E_chi2_diag: Vector3 = Vector3(),
+        E_chi3_diag: Vector3 = Vector3(),
+        H_chi2_diag: Vector3 = Vector3(),
+        H_chi3_diag: Vector3 = Vector3(),
+        D_conductivity_diag: Vector3 = Vector3(),
+        D_conductivity_offdiag: Vector3 = Vector3(),
+        B_conductivity_diag: Vector3 = Vector3(),
+        B_conductivity_offdiag: Vector3 = Vector3(),
+        epsilon: Optional[float] = None,
+        index: Optional[float] = None,
+        mu: Optional[float] = None,
+        chi2: Optional[float] = None,
+        chi3: Optional[float] = None,
+        D_conductivity: Optional[float] = None,
+        B_conductivity: Optional[float] = None,
+        E_chi2: Optional[float] = None,
+        E_chi3: Optional[float] = None,
+        H_chi2: Optional[float] = None,
+        H_chi3: Optional[float] = None,
+        valid_freq_range: NamedTuple = FreqRange(min=-mp.inf, max=mp.inf),
     ):
         """
         Creates a `Medium` object.
 
-        + **`epsilon` [`number`]** The frequency-independent isotropic relative
+        + **`epsilon` [ `number` ]** The frequency-independent isotropic relative
           permittivity or dielectric constant. Default is 1. You can also use `index=n` as
           a synonym for `epsilon=n*n`; note that this is not really the refractive index
-          if you also specify μ, since the true index is $\\sqrt{\\mu\\varepsilon}$. Using
+          if you also specify $\\mu$, since the true index is $\\sqrt{\\mu\\varepsilon}$. Using
           `epsilon=ep` is actually a synonym for `epsilon_diag=mp.Vector3(ep, ep, ep)`.
 
-        + **`epsilon_diag` and `epsilon_offdiag` [`Vector3`]** — These properties allow
+        + **`epsilon_diag` and `epsilon_offdiag` [ `Vector3` ]** — These properties allow
           you to specify ε as an arbitrary real-symmetric tensor by giving the diagonal
           and offdiagonal parts. Specifying `epsilon_diag=Vector3(a, b, c)` and/or
-          `epsilon_offdiag=Vector3(u, v, w)` corresponds to a relative permittivity ε
+          `epsilon_offdiag=Vector3(u, v, w)` corresponds to a relative permittivity $\\varepsilon$
           tensor \\begin{pmatrix} a & u & v \\\\ u & b & w \\\\ v & w & c \\end{pmatrix}
           Default is the identity matrix ($a = b = c = 1$ and $u = v = w = 0$).
 
-        + **`mu` [`number`]** — The frequency-independent isotropic relative permeability
-          μ. Default is 1. Using `mu=pm` is actually a synonym for `mu_diag=mp.Vector3(pm,
+        + **`mu` [ `number` ]** — The frequency-independent isotropic relative permeability
+          $\\mu$. Default is 1. Using `mu=pm` is actually a synonym for `mu_diag=mp.Vector3(pm,
           pm, pm)`.
 
-        + **`mu_diag` and `mu_offdiag` [`Vector3`]** — These properties allow you to
-          specify μ as an arbitrary real-symmetric tensor by giving the diagonal and
-          offdiagonal parts exactly as for ε above. Default is the identity matrix.
+        + **`mu_diag` and `mu_offdiag` [ `Vector3` ]** — These properties allow you to
+          specify $\\mu$ as an arbitrary real-symmetric tensor by giving the diagonal and
+          offdiagonal parts exactly as for $\\varepsilon$ above. Default is the identity matrix.
 
-        + **`D_conductivity` [`number`]** — The frequency-independent electric
+        + **`D_conductivity` [ `number` ]** — The frequency-independent electric
           conductivity $\\sigma_D$. Default is 0. You can also specify a diagonal
           anisotropic conductivity tensor by using the property `D_conductivity_diag`
           which takes a `Vector3` to give the $\\sigma_D$ tensor diagonal. See also
           [Conductivity](Materials.md#conductivity-and-complex).
 
-        + **`B_conductivity` [`number`]** — The frequency-independent magnetic
+        + **`B_conductivity` [ `number` ]** — The frequency-independent magnetic
           conductivity $\\sigma_B$. Default is 0. You can also specify a diagonal
           anisotropic conductivity tensor by using the property `B_conductivity_diag`
           which takes a `Vector3` to give the $\\sigma_B$ tensor diagonal. See also
           [Conductivity](Materials.md#conductivity-and-complex).
 
-        + **`chi2` [`number`]** — The nonlinear electric
+        + **`chi2` [ `number` ]** — The nonlinear electric
           [Pockels](https://en.wikipedia.org/wiki/Pockels_effect) susceptibility
           $\\chi^{(2)}$ (quadratic nonlinearity). Default is 0. See also [Nonlinearity](Materials.md#nonlinearity).
           This is equivalent to setting `E_chi2`; alternatively, an analogous magnetic
@@ -383,7 +388,7 @@ class Medium:
           but *diagonal* anisotropic polarizations of the form $\\chi_i^{(2)} E_i^2$ can
           be specified with `E_chi2_diag` (which defaults to `[E_chi2,E_chi2,E_chi2]`).
 
-        + **`chi3` [`number`]** — The nonlinear electric
+        + **`chi3` [ `number` ]** — The nonlinear electric
           [Kerr](https://en.wikipedia.org/wiki/Kerr_effect) susceptibility $\\chi^{(3)}$
           (cubic nonlinearity). Default is 0. See also [Nonlinearity](Materials.md#nonlinearity).
           This is equivalent to setting `E_chi3`; alternatively, an analogous magnetic nonlinearity
@@ -392,12 +397,12 @@ class Medium:
           `E_chi3_diag` (which defaults to `[E_chi3,E_chi3,E_chi3]`).
 
         + **`E_susceptibilities` [ list of `Susceptibility` class ]** — List of dispersive
-          susceptibilities (see below) added to the dielectric constant ε in order to
+          susceptibilities (see below) added to the dielectric constant $\\varepsilon$ in order to
           model material dispersion. Defaults to none (empty list). See also [Material
           Dispersion](Materials.md#material-dispersion).
 
         + **`H_susceptibilities` [ list of `Susceptibility` class ]** — List of dispersive
-          susceptibilities (see below) added to the permeability μ in order to model
+          susceptibilities (see below) added to the permeability $\\mu$ in order to model
           material dispersion. Defaults to none (empty list). See also [Material
           Dispersion](Materials.md#material-dispersion).
         """
@@ -587,15 +592,15 @@ class MaterialGrid:
 
     def __init__(
         self,
-        grid_size,
-        medium1,
-        medium2,
-        weights=None,
-        grid_type="U_DEFAULT",
-        do_averaging=True,
-        beta=0,
-        eta=0.5,
-        damping=0,
+        grid_size: Union[Vector3, Tuple[float, ...]],
+        medium1: Medium,
+        medium2: Medium,
+        weights: np.ndarray = None,
+        grid_type: str = "U_DEFAULT",
+        do_averaging: bool = True,
+        beta: float = 0,
+        eta: float = 0.5,
+        damping: float = 0,
     ):
         """
         Creates a `MaterialGrid` object.
@@ -610,6 +615,7 @@ class MaterialGrid:
         ![](images/material_grid.png#center)
 
         Elements of the `weights` array must be in the range [0,1] where 0 is `medium1` and 1 is `medium2`.
+        An array of boolean values `False` and `True` will be converted to 0 and 1, respectively.
         The `weights` array is used to define a linear interpolation from `medium1` to `medium2`.
         Two material types are supported: (1) frequency-independent isotropic $\\varepsilon$ (`epsilon_diag`
         and `epsilon_offdiag` are interpolated) and (2) `LorentzianSusceptibility` (`sigma` and `sigma_offdiag`
@@ -621,7 +627,8 @@ class MaterialGrid:
         `do_averaging=True`. If you want to use a material grid to define a (nearly) discontinuous,
         piecewise-constant material that is *either* `medium1` or `medium2` almost everywhere, you can
         optionally enable a (smoothed) *projection* feature by setting the parameter `beta` to a
-        positive value. When the projection feature is enabled, the weights $u(x)$ can be thought of as a
+        positive value. The default is no projection (`beta=0`). When the projection feature is
+        enabled, the weights $u(x)$ can be thought of as a
         [level-set function](https://en.wikipedia.org/wiki/Level-set_method) defining an interface at
         $u(x)=\\eta$ with a smoothing factor $\\beta$ where $\\beta=+\\infty$ gives an unsmoothed,
         discontinuous interface. The projection operator is $(\\tanh(\\beta\\times\\eta)
@@ -630,7 +637,12 @@ class MaterialGrid:
         ($\\eta$: offset for erosion/dilation). The level set provides a general approach for defining
         a *discontinuous* function from otherwise continuously varying (via the bilinear interpolation)
         grid values. Subpixel smoothing is fast and accurate because it exploits an analytic formulation
-        for level-set functions.
+        for level-set functions. Note that when subpixel smoothing is enabled via `do_averaging=True`,
+        projecting the `weights` is done internally using the `beta` parameter. It is therefore not
+        necessary to manually project the `weights` outside of `MaterialGrid`. However, visualizing
+        the `weights` used to define the structure does require manually projecting the `weights` yourself.
+        (Alternatively, you can output the actual structure using [`plot2D`](#data-visualization) or
+        [`output_epsilon`](#output-functions_1).)
 
         A nonzero `damping` term creates an artificial conductivity $\\sigma = u(1-u)*$`damping`, which acts as
         dissipation loss that penalizes intermediate pixel values of non-binarized structures. The value of
@@ -671,7 +683,7 @@ class MaterialGrid:
                 )
             )
         else:
-            self.weights = self.check_weights(weights).flatten().astype(np.float64)
+            self.weights = self.check_weights(weights.flatten().astype(np.float64))
 
         grid_type_dict = {"U_MIN": 0, "U_PROD": 1, "U_MEAN": 2, "U_DEFAULT": 3}
         if grid_type not in grid_type_dict:
@@ -684,7 +696,7 @@ class MaterialGrid:
 
         self.swigobj = None
 
-    def update_weights(self, x):
+    def update_weights(self, x: np.ndarray):
         """
         Reset the `weights` to `x`.
         """
@@ -1072,7 +1084,9 @@ class GeometricObject:
     ```
     """
 
-    def __init__(self, material=Medium(), center=Vector3(), epsilon_func=None):
+    def __init__(
+        self, material=Medium(), center=Vector3(), epsilon_func=None, label=None
+    ):
         """
         Construct a `GeometricObject`.
 
@@ -1100,6 +1114,7 @@ class GeometricObject:
             epsilon_func.eps = True
             material = epsilon_func
 
+        self.label = label
         self.material = material
         self.center = Vector3(*center)
 
@@ -1699,7 +1714,7 @@ def find_root_deriv(f, tol, x_min, x_max, x_guess=None):
     f_memo = memoize(f)
 
     def lazy(x):
-        return x if isinstance(x, numbers.Number) else x()
+        return x if isinstance(x, Number) else x()
 
     def pick_bound(which):
         def _pb():
@@ -1741,7 +1756,7 @@ def find_root_deriv(f, tol, x_min, x_max, x_guess=None):
         ):
             raise ValueError("failed to bracket the root in find_root_deriv")
 
-        if isinstance(a, numbers.Number) and isinstance(b, numbers.Number):
+        if isinstance(a, Number) and isinstance(b, Number):
             is_in_bounds = in_bounds(x, f, df, a, b)
         else:
             is_in_bounds = in_bounds(x, f, df, x_min, x_max)

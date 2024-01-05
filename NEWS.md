@@ -1,5 +1,49 @@
 # Meep Release Notes
 
+## Meep 1.28.0
+
+11/9/2023
+
+* Improved special field updates for r=0 in cylindrical coordinates ([#2538]).
+
+* Geometric objects now have a `label` field that appears when `Simulation.plot2D` is called with `label_geometry=True` ([#2631]).
+
+* Various improvements and minor bug fixes ([#2554], [#2599], [#2560], [#2611], [#2684], [#2695]) and additional documentation.
+
+## Meep 1.27.0
+
+5/25/2023
+
+* Support for spectral extrapolation using Padé approximants ([#2440]).
+
+* Support for periodic design regions of adjoint solver ([#2465], [#2518]).
+
+* Support for "unfiltering" a given set of design weights for adjoint optimization ([#2462]).
+
+* MPB is no longer a required dependency ([#2486]).
+
+* Bug fix for sources at $r = 0$ in cylindrical coordinates ([#2459]).
+
+* Additional unit tests and documentation ([#2428], [#2433], [#2452], [#2474]) and various improvements and minor bug fixes ([#2499], [#2504]).
+
+## Meep 1.26.0
+
+3/9/2023
+
+* Improved Gaussian beam source in 2D ([#2333]).
+
+* Support for returning the number of timesteps elapsed in simulation ([#2337]).
+
+* Bug fix for fields update in cylindrical coordinates ([#2382]).
+
+* Bug fix for PMLs in cylindrical coordinates ([#2383]).
+
+* Bug fix in amplitude function of eigenmode source ([#2394]).
+
+* The `doc/` directory (the manual) is no longer included in the release tarball to save space, since most people will view this online.  (It is still in the git repository.)
+
+* Various improvements and minor bug fixes ([#2321], [#2349], [#2371], [#2380], [#2390], [#2413]), and additional unit tests and documentation ([#2314], [#2360], [#2364], [#2365], [#2387], [#2395], [#2402]).
+
 ## Meep 1.25.0
 
 11/17/2022
@@ -1113,3 +1157,41 @@ Meep 1.0.1
 [#2289]: https://github.com/NanoComp/meep/issues/2289
 [#2290]: https://github.com/NanoComp/meep/issues/2290
 [#2305]: https://github.com/NanoComp/meep/issues/2305
+[#2314]: https://github.com/NanoComp/meep/issues/2314
+[#2321]: https://github.com/NanoComp/meep/issues/2321
+[#2333]: https://github.com/NanoComp/meep/issues/2333
+[#2337]: https://github.com/NanoComp/meep/issues/2337
+[#2349]: https://github.com/NanoComp/meep/issues/2349
+[#2360]: https://github.com/NanoComp/meep/issues/2360
+[#2364]: https://github.com/NanoComp/meep/issues/2364
+[#2365]: https://github.com/NanoComp/meep/issues/2365
+[#2371]: https://github.com/NanoComp/meep/issues/2371
+[#2380]: https://github.com/NanoComp/meep/issues/2380
+[#2382]: https://github.com/NanoComp/meep/issues/2382
+[#2383]: https://github.com/NanoComp/meep/issues/2383
+[#2387]: https://github.com/NanoComp/meep/issues/2387
+[#2390]: https://github.com/NanoComp/meep/issues/2390
+[#2394]: https://github.com/NanoComp/meep/issues/2394
+[#2395]: https://github.com/NanoComp/meep/issues/2395
+[#2402]: https://github.com/NanoComp/meep/issues/2402
+[#2413]: https://github.com/NanoComp/meep/issues/2413
+[#2428]: https://github.com/NanoComp/meep/issues/2428
+[#2433]: https://github.com/NanoComp/meep/issues/2433
+[#2440]: https://github.com/NanoComp/meep/issues/2440
+[#2452]: https://github.com/NanoComp/meep/issues/2452
+[#2459]: https://github.com/NanoComp/meep/issues/2459
+[#2462]: https://github.com/NanoComp/meep/issues/2462
+[#2465]: https://github.com/NanoComp/meep/issues/2465
+[#2474]: https://github.com/NanoComp/meep/issues/2474
+[#2486]: https://github.com/NanoComp/meep/issues/2486
+[#2499]: https://github.com/NanoComp/meep/issues/2499
+[#2504]: https://github.com/NanoComp/meep/issues/2504
+[#2518]: https://github.com/NanoComp/meep/issues/2518
+[#2538]: https://github.com/NanoComp/meep/issues/2538
+[#2554]: https://github.com/NanoComp/meep/issues/2554
+[#2560]: https://github.com/NanoComp/meep/issues/2560
+[#2599]: https://github.com/NanoComp/meep/issues/2599
+[#2611]: https://github.com/NanoComp/meep/issues/2611
+[#2631]: https://github.com/NanoComp/meep/issues/2631
+[#2684]: https://github.com/NanoComp/meep/issues/2684
+[#2695]: https://github.com/NanoComp/meep/issues/2695

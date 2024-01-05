@@ -143,6 +143,277 @@ The reflectance values computed using the two methods are nearly identical. For 
 
 In the reflected-flux calculation, we apply our usual trick of first performing a reference simulation with just the incident field and then subtracting that from our taper simulation with `load_minus_flux_data`, so that what is left over is the reflected fields (from which we obtain the reflected flux).  In *principle*, this trick would not be required for the mode-decomposition method, because the reflected mode is orthogonal to the forward mode and so the decomposition will separate the forward and reflected coefficients automatically.   However, this is only true in the limit of infinite resolution — for a *finite* resolution, the reflected mode used for the mode coefficient calculation (calculated via MPB) is not exactly orthogonal to the forward mode propagating in Meep (whose discretization scheme is different from that of MPB).   In consequence, if you did not subtract the fields of the reference simulation, the mode-coefficient could only calculate the reflected power down to a "noise floor" set by the discretization error.  With the subtraction, in contrast, you can compute much smaller reflections (limited by the floating-point precision).
 
+Phase of a Total Internal Reflected Mode
+----------------------------------------
+
+For certain applications, such as [physically based ray tracing](https://pbr-book.org/), the phase of the reflection/transmission coefficient of a surface interface (flat or textured) is an important parameter used for modeling coherent effects (i.e., constructive or destructive interference from a collection of intersecting rays scattered off the surface). This tutorial demonstrates how to use mode decomposition to compute the phase of the reflection coefficient of a [total internal reflected](https://en.wikipedia.org/wiki/Total_internal_reflection) (TIR) mode. The simulated results are validated using the [Fresnel equations](https://en.wikipedia.org/wiki/Total_internal_reflection#Phase_shifts).
+
+The example involves a 2d simulation of a flat interface of two lossless media with $n_1=1.5$ and $n_2=1.0$. The [critical angle](https://en.wikipedia.org/wiki/Total_internal_reflection#Critical_angle) for this interface is $\theta_c = 41.8^\circ$. The source is an incident planewave with linear polarization ($S$ or $P$). The 2d cell is periodic in $y$ with PML in the $x$ direction. The cell size in the $y$ direction does not affect the results and is therefore arbitrary. A schematic of the simulation layout is shown below.
+
+![](../images/refl_coeff_flat_interface.png#center)
+
+The key item to consider in these types of calculations is the *location of the mode monitor relative to the interface*. The mode monitor is a line extending the entire length of the cell in the $y$ direction. In order to validate the simulated result using the Fresnel equations, the phase of the reflection coefficient must be computed *exactly* at the interface. However, it is problematic to measure the reflection coefficient exactly at the interface because the amplitude of the left-going wave drops discontinuously to zero across the interface. For this reason, the mode monitor must be positioned away from the interface (somewhere within the $n_1$ medium) and the measured phase must be corrected in post processing to account for this offset.
+
+The calculation of the reflection coefficient requires two separate runs: (1) a normalization run involving just the source medium ($n_1$) to obtain the incident fields, and (2) the main run including the interface whereby the incident fields from (1) are first subtracted from the monitor to obtain only the reflected fields. The mode coefficient in (2) divided by (1) is, by definition, the reflection coefficient. The phase is the [argument](https://en.wikipedia.org/wiki/Argument_(complex_analysis)) of the complex reflection coefficient.  Whenever one defines a phase, it is relative to some choice of reference — in particular, the phase of the mode profile, which for a planewave is chosen so that the electric field is purely real and its sign follows a [typical convention](https://en.wikipedia.org/wiki/Total_internal_reflection#Phase_shifts) used for Fresnel coefficients.
+
+The phase of the reflection coefficient needs to be corrected for the offset of the mode monitor relative to the interface &mdash; labeled $L$ in the schematic above &mdash; using the formula $\exp(i 2\pi k_x 2L)$, where $k_x$ is the $x$ component of the planewave's wavevector (`k` in the script). The $2\pi$ factor is necessary because `k` does *not* include this factor (per convention in Meep). The factor 2 in front of the $L$ is necessary because the phase needs to be corrected for the monitors in the normalization and main runs separately. The correction factor is just the phase accumulated as the wave propagates in the surface-normal direction for a distance $L$ in a medium with index $n_1$. (A transmitted mode would involve a correction factor for a medium with index $n_2$.)
+
+With this setup, we measure the phase of the reflection coefficient for two different source configurations (polarization and angle) and compare the result with the Fresnel equations. The location of the mode monitor is also varied in the two test configurations. Results are shown in the two tables below. There is good agreement between the simulation and theory. (As additional validation, we note that the magnitude of the reflection coefficient of a TIR mode must be one which is indeed the case.)
+
+| $S$ pol., $\theta$ = 54.3° | reflection coefficient | phase (radians) |
+|:--------------------------:|:----------------------:|:---------------:|
+|            Meep            |    0.23415-0.96597j    |     -1.33299    |
+|           Theory           |    0.22587-0.97416j    |     -1.34296    |
+
+
+| $P$ pol., $\theta$ = 48.5° | reflection coefficient | phase (radians) |
+|:--------------------------:|:----------------------:|:---------------:|
+|            Meep            |    0.11923+0.98495j    |      1.45033    |
+|           Theory           |    0.14645+0.98922j    |      1.42382    |
+
+The simulation script is in [examples/mode_coeff_phase.py](https://github.com/NanoComp/meep/blob/master/python/examples/mode_coeff_phase.py).
+
+```py
+import cmath
+from enum import Enum
+import math
+
+import meep as mp
+import numpy as np
+
+Polarization = Enum("Polarization", "S P")
+
+# refractive indices of materials 1 and 2
+n1 = 1.5
+n2 = 1.0
+
+
+def refl_coeff_meep(pol: Polarization, theta: float, L: float) -> complex:
+    """Returns the complex reflection coefficient of a TIR mode computed
+       using mode decomposition.
+
+    Args:
+        pol: polarization of the incident planewave (S or P).
+        theta: angle of the incident planewave (radians).
+        L: position of the mode monitor relative to the flat interface.
+    """
+    if theta < math.asin(n2 / n1):
+        raise ValueError(f"incident angle of {math.degrees(theta):.2f}° is "
+                         f"not a total internal reflected mode.")
+
+    resolution = 50.0
+
+    # cell size is arbitrary
+    sx = 7.0
+    sy = 3.0
+    dpml = 2.0
+    cell_size = mp.Vector3(sx + 2 * dpml, sy, 0)
+    pml_layers = [mp.PML(dpml, direction=mp.X)]
+
+    fcen = 1.0  # source/monitor frequency
+    df = 0.1 * fcen
+
+    # k (in source medium) with correct length
+    # plane of incidence is xy
+    k = mp.Vector3(n1 * fcen, 0, 0).rotate(mp.Vector3(0, 0, 1), theta)
+
+    # planewave amplitude function (for line source)
+    def pw_amp(k, x0):
+        def _pw_amp(x):
+            return cmath.exp(1j * 2 * math.pi * k.dot(x + x0))
+        return _pw_amp
+
+    src_pt = mp.Vector3(-0.5 * sx, 0, 0)
+
+    if pol.name == "S":
+        src_cmpt = mp.Ez
+        eig_parity = mp.ODD_Z
+    elif pol.name == "P":
+        src_cmpt = mp.Hz
+        eig_parity = mp.EVEN_Z
+    else:
+        raise ValueError("pol must be S or P, only.")
+
+    sources = [
+        mp.Source(
+            mp.GaussianSource(fcen, fwidth=df),
+            component=src_cmpt,
+            center=src_pt,
+            size=mp.Vector3(0, cell_size.y, 0),
+            amp_func=pw_amp(k, src_pt),
+        ),
+    ]
+
+    sim = mp.Simulation(
+        resolution=resolution,
+        cell_size=cell_size,
+        default_material=mp.Medium(index=n1),
+        boundary_layers=pml_layers,
+        k_point=k,
+        sources=sources,
+    )
+
+    # DFT monitor for incident fields
+    mode_mon = sim.add_mode_monitor(
+        fcen,
+        0,
+        1,
+        mp.FluxRegion(
+            center=mp.Vector3(-L, 0, 0),
+            size=mp.Vector3(0, cell_size.y, 0),
+        ),
+    )
+
+    sim.run(
+        until_after_sources=mp.stop_when_fields_decayed(
+            50,
+            src_cmpt,
+            mp.Vector3(-L, 0, 0),
+            1e-6,
+        ),
+    )
+
+    res = sim.get_eigenmode_coefficients(
+        mode_mon,
+        bands=[1],
+        eig_parity=eig_parity,
+        kpoint_func=lambda *not_used: k,
+        direction=mp.NO_DIRECTION,
+    )
+
+    input_mode_coeff = res.alpha[0, 0, 0]
+    input_flux_data = sim.get_flux_data(mode_mon)
+
+    sim.reset_meep()
+
+    geometry = [
+        mp.Block(
+            material=mp.Medium(index=n1),
+            center=mp.Vector3(-0.25 * (sx + 2 * dpml), 0, 0),
+            size=mp.Vector3(0.5 * (sx + 2 * dpml), mp.inf, mp.inf),
+        ),
+        mp.Block(
+            material=mp.Medium(index=n2),
+            center=mp.Vector3(0.25 * (sx + 2 * dpml), 0, 0),
+            size=mp.Vector3(0.5 * (sx + 2 * dpml), mp.inf, mp.inf),
+        ),
+    ]
+
+    sim = mp.Simulation(
+        resolution=resolution,
+        cell_size=cell_size,
+        boundary_layers=pml_layers,
+        k_point=k,
+        sources=sources,
+        geometry=geometry,
+    )
+
+    # DFT monitor for reflected fields
+    mode_mon = sim.add_mode_monitor(
+        fcen,
+        0,
+        1,
+        mp.FluxRegion(
+            center=mp.Vector3(-L, 0, 0),
+            size=mp.Vector3(0, cell_size.y, 0),
+        ),
+    )
+
+    sim.load_minus_flux_data(mode_mon, input_flux_data)
+
+    sim.run(
+        until_after_sources=mp.stop_when_fields_decayed(
+            50,
+            src_cmpt,
+            mp.Vector3(-L, 0, 0),
+            1e-6,
+        ),
+    )
+
+    res = sim.get_eigenmode_coefficients(
+        mode_mon,
+        bands=[1],
+        eig_parity=eig_parity,
+        kpoint_func=lambda *not_used: k,
+        direction=mp.NO_DIRECTION,
+    )
+
+    # mode coefficient of reflected planewave
+    refl_mode_coeff = res.alpha[0, 0, 1]
+
+    # reflection coefficient
+    refl_coeff = refl_mode_coeff / input_mode_coeff
+
+    # apply phase correction factor
+    refl_coeff /= cmath.exp(1j * k.x * 2 * math.pi * 2 * L)
+
+    return refl_coeff
+
+
+def refl_coeff_Fresnel(pol: Polarization, theta: float) -> complex:
+    """Returns the complex reflection coefficient of a TIR mode computed
+       using the Fresnel equations.
+
+    Args:
+        pol: polarization of the incident planewave (S or P).
+        theta: angle of the incident planewave (radians).
+    """
+    if pol.name == "S":
+        refl_coeff = (
+            math.cos(theta) - ((n2 / n1) ** 2 - math.sin(theta) ** 2) ** 0.5
+        ) / (math.cos(theta) + ((n2 / n1) ** 2 - math.sin(theta) ** 2) ** 0.5)
+    else:
+        refl_coeff = (
+            -((n2 / n1) ** 2) * math.cos(theta)
+            + ((n2 / n1) ** 2 - math.sin(theta) ** 2) ** 0.5
+        ) / (
+            (n2 / n1) ** 2 * math.cos(theta)
+            + ((n2 / n1) ** 2 - math.sin(theta) ** 2) ** 0.5
+        )
+
+    return refl_coeff
+
+
+if __name__ == "__main__":
+    # angle of incident planewave (degrees)
+    thetas = [54.3, 48.5]
+
+    # position of mode monitor relative to flat interface
+    Ls = [0.4, 1.2]
+
+    # polarization of incident planewave
+    pols = [Polarization.S, Polarization.P]
+
+    for pol, theta, L in zip(pols, thetas, Ls):
+        theta_rad = np.radians(theta)
+        R_meep = refl_coeff_meep(pol, theta_rad, L)
+        R_fres = refl_coeff_Fresnel(pol, theta_rad)
+
+        complex_to_str = lambda cnum: f"{cnum.real:.5f}{cnum.imag:+.5f}j"
+        print(
+            f"refl-coeff:, {pol.name}, {theta}, "
+            f"{complex_to_str(R_meep)} (Meep), "
+            f"{complex_to_str(R_fres)} (Fresnel)"
+        )
+
+        mag_meep = abs(R_meep)
+        mag_fres = abs(R_fres)
+        err_mag = abs(mag_meep - mag_fres) / mag_fres
+        print(
+            f"magnitude:, {mag_meep:.5f} (Meep), {mag_fres:.5f} (Fresnel), "
+            f"{err_mag:.5f} (error)"
+        )
+
+        phase_meep = cmath.phase(R_meep)
+        phase_fres = cmath.phase(R_fres)
+        err_phase = abs(phase_meep - phase_fres) / abs(phase_fres)
+        print(
+            f"phase:, {phase_meep:.5f} (Meep), {phase_fres:.5f} (Fresnel), "
+            f"{err_phase:.5f} (error)"
+        )
+```
+
+
 Diffraction Spectrum of a Binary Grating
 ----------------------------------------
 

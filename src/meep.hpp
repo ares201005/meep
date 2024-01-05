@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -105,7 +105,9 @@ public:
   int get_id() const { return id; }
   bool operator==(const susceptibility &s) const { return id == s.id; };
 
-  // Returns the 1st order nonlinear susceptibility (generic)
+  virtual bool has_nonlinearities() const { return next ? next->has_nonlinearities() : false; }
+
+  // Returns the 1st order (linear) susceptibility (generic)
   virtual std::complex<realnum> chi1(realnum freq, realnum sigma = 1);
 
   // update all of the internal polarization state given the W field
@@ -345,6 +347,8 @@ public:
   virtual susceptibility *clone() const { return new multilevel_susceptibility(*this); }
   virtual ~multilevel_susceptibility();
 
+  virtual bool has_nonlinearities() const { return true; }
+
   virtual void update_P(realnum *W[NUM_FIELD_COMPONENTS][2],
                         realnum *W_prev[NUM_FIELD_COMPONENTS][2], realnum dt, const grid_volume &gv,
                         void *P_internal_data) const;
@@ -457,7 +461,7 @@ public:
     int dindex;
     char *dataname;
     struct extending_s *next;
-  } * extending;
+  } *extending;
   extending_s *get_extending(const char *dataname) const;
 };
 
@@ -615,6 +619,8 @@ public:
   void use_pml(direction, double dx, double boundary_loc, double Rasymptotic, double mean_stretch,
                pml_profile_func pml_profile, void *pml_profile_data, double pml_profile_integral,
                double pml_profile_integral_u);
+
+  bool has_nonlinearities() const;
 
   void add_susceptibility(material_function &sigma, field_type ft, const susceptibility &sus);
 
@@ -1459,6 +1465,8 @@ public:
   realnum *f_w[NUM_FIELD_COMPONENTS][2];    // E/H integrated from these
   realnum *f_cond[NUM_FIELD_COMPONENTS][2]; // aux field for PML+conductivity
 
+  realnum *f_bfast[NUM_FIELD_COMPONENTS][2];
+
   /* sometimes, to synchronize the E and H fields, e.g. for computing
      flux at a given time, we need to timestep H by 1/2; in this case
      we save backup copies of (some of) the fields to resume timestepping */
@@ -1467,6 +1475,7 @@ public:
   realnum *f_w_backup[NUM_FIELD_COMPONENTS][2];
   realnum *f_cond_backup[NUM_FIELD_COMPONENTS][2];
 
+  realnum *f_bfast_backup[NUM_FIELD_COMPONENTS][2];
   // W (or E/H) field from prev. timestep, only stored if needed by update_pols
   realnum *f_w_prev[NUM_FIELD_COMPONENTS][2];
 
@@ -1493,6 +1502,7 @@ public:
   volume v;
   double m;                        // angular dependence in cyl. coords
   bool zero_fields_near_cylorigin; // fields=0 m pixels near r=0 for stability
+  std::vector<double> bfast_scaled_k;
   double beta;
   int is_real;
   std::vector<src_vol> sources[NUM_FIELD_TYPES];
@@ -1502,7 +1512,8 @@ public:
   int chunk_idx;
 
   fields_chunk(structure_chunk *, const char *outdir, double m, double beta,
-               bool zero_fields_near_cylorigin, int chunkidx, int loop_tile_base_db);
+               bool zero_fields_near_cylorigin, int chunkidx, int loop_tile_base_db,
+               std::vector<double> bfast_scaled_k);
 
   fields_chunk(const fields_chunk &, int chunkidx);
   ~fields_chunk();
@@ -1730,6 +1741,7 @@ public:
   grid_volume gv, user_volume;
   volume v;
   double m;
+  std::vector<double> bfast_scaled_k;
   double beta;
   int t, phasein_time, is_real;
   std::complex<double> k[5], eikna[5];
@@ -1741,7 +1753,8 @@ public:
 
   // fields.cpp methods:
   fields(structure *, double m = 0, double beta = 0, bool zero_fields_near_cylorigin = true,
-         int loop_tile_base_db = 0, int loop_tile_base_eh = 0);
+         int loop_tile_base_db = 0, int loop_tile_base_eh = 0,
+         std::vector<double> bfast_scaled_k = {0, 0, 0});
   fields(const fields &);
   ~fields();
   bool equal_layout(const fields &f) const;
@@ -1753,6 +1766,7 @@ public:
   void reset();
   void log(const char *prefix = "");
   void change_m(double new_m);
+  bool has_nonlinearities(bool parallel = true) const;
 
   // time.cpp
   std::vector<double> time_spent_on(time_sink sink);

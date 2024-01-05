@@ -51,11 +51,13 @@ Specify particular boundary in the positive `High` (e.g., +`X`) or negative `Low
 —
 Specify a particular field or other component. One of `Ex`, `Ey`, `Ez`, `Er`, `Ep`, `Hx`, `Hy`, `Hz`, `Hy`, `Hp`, `Hz`, `Bx`, `By`, `Bz`, `By`, `Bp`, `Bz`, `Dx`, `Dy`, `Dz`, `Dr`, `Dp`, `Dielectric`, `Permeability`, for $E_x$, $E_y$, $E_z$, $E_r$, $E_\phi$, $H_x$, $H_y$, $H_z$, $H_r$, $H_\phi$, $B_x$, $B_y$, $B_z$, $B_r$, $B_\phi$, $D_x$, $D_y$, $D_z$, $D_r$, $D_\phi$, ε, μ, respectively.
 
+There are two convenience functions `meep.component_name` and `meep.direction_name` which, given a `component`/`derived_component` and `direction` argument respectively, return the equivalent string representation (e.g., `meep.component_name(meep.Ex)` returns `ex` and `meep.direction_name(meep.R)` returns `r`, etc.).
+
 **`derived_component` constants**
 —
 These are additional components which are not actually stored by Meep but are computed as needed, mainly for use in output functions. One of `Sx`, `Sy`, `Sz`, `Sr`, `Sp`, `EnergyDensity`, `D_EnergyDensity`, `H_EnergyDensity` for $S_x$, $S_y$, $S_z$, $S_r$, $S_\phi$ (components of the Poynting vector $\mathrm{Re}\,\mathbf{E}^* \times \mathbf{H}$), $(\mathbf{E}^* \cdot \mathbf{D} + \mathbf{H}^* \cdot \mathbf{B})/2$, $\mathbf{E}^* \cdot \mathbf{D}/2$, $\mathbf{H}^* \cdot \mathbf{B}/2$, respectively.
 
-
+There are two convenience functions `meep.component_name` and `meep.direction_name` which, given a `component`/`derived_component` and `direction` argument respectively, return the equivalent string representation (e.g., `meep.component_name(meep.Ex)` returns `ex` and `meep.direction_name(meep.R)` returns `r`, etc.).
 
 The Simulation Class
 ---------------------
@@ -86,7 +88,7 @@ control various parameters of the Meep computation.
 
 ```python
 def __init__(self,
-             cell_size: Union[meep.geom.Vector3, Tuple[float, ...], NoneType] = None,
+             cell_size: Union[meep.geom.Vector3, Tuple[float, ...]] = None,
              resolution: float = None,
              geometry: Optional[List[meep.geom.GeometricObject]] = None,
              sources: Optional[List[meep.source.Source]] = None,
@@ -474,6 +476,23 @@ differences in roundoff error from making your results different by one timestep
 from machine to machine (a difference much bigger than roundoff error); in this
 case you can call `Simulation.round_time()` instead, which returns the time
 rounded to single precision.
+
+</div>
+
+</div>
+
+
+<a id="Simulation.timestep"></a>
+
+<div class="class_members" markdown="1">
+
+```python
+def timestep(self):
+```
+
+<div class="method_docstring" markdown="1">
+
+Return the number of elapsed timesteps.
 
 </div>
 
@@ -1400,7 +1419,7 @@ following fields:
 + `alpha`: the complex eigenmode coefficients as a 3d NumPy array of size
   (`len(bands)`, `flux.nfreqs`, `2`). The last/third dimension refers to modes
   propagating in the forward (+) or backward (-) directions defined relative to
-  the mode's dominant wavevector.
+  the sign of the propagation constant β of the mode (the wavevector component in the direction perpendicular to the mode-monitor plane).
 + `vgrp`: the group velocity as a NumPy array.
 + `kpoints`: a list of `mp.Vector3`s of the `kpoint` used in the mode calculation.
 + `kdom`: a list of `mp.Vector3`s of the mode's dominant wavevector.
@@ -2102,7 +2121,7 @@ where the $|\hat{p}(\omega)|^2$ normalization is necessary for obtaining the pow
 
 Meep can compute a near-to-far-field transformation in the frequency domain as described in [Tutorial/Near-to-Far Field Spectra](Python_Tutorials/Near_to_Far_Field_Spectra.md): given the fields on a "near" bounding surface inside the cell, it can compute the fields arbitrarily far away using an analytical transformation, assuming that the "near" surface and the "far" region lie in a single homogeneous non-periodic 2d, 3d, or cylindrical region. That is, in a simulation *surrounded by PML* that absorbs outgoing waves, the near-to-far-field feature can compute the fields outside the cell as if the outgoing waves had not been absorbed (i.e. in the fictitious infinite open volume). Moreover, this operation is performed on the Fourier-transformed fields: like the flux and force spectra above, you specify a set of desired frequencies, Meep accumulates the Fourier transforms, and then Meep computes the fields at *each frequency* for the desired far-field points.
 
-This is based on the principle of equivalence: given the Fourier-transformed tangential fields on the "near" surface, Meep computes equivalent currents and convolves them with the analytical Green's functions in order to compute the fields at any desired point in the "far" region. For details, see Section 4.2.1 ("The Principle of Equivalence") in [Chapter 4](http://arxiv.org/abs/arXiv:1301.5366) ("Electromagnetic Wave Source Conditions") of the book [Advances in FDTD Computational Electrodynamics: Photonics and Nanotechnology](https://www.amazon.com/Advances-FDTD-Computational-Electrodynamics-Nanotechnology/dp/1608071707). Since the "far" fields are computed using the full Green's functions, they should be able to be computed *anywhere* outside of the near-field surface monitor. The only limiting factor should be discretization errors but for any given distannce, the "far" fields should converge to the actual DFT fields at that location with resolution (assuming the distance separation is >> resolution).
+This is based on the principle of equivalence: given the Fourier-transformed tangential fields on the "near" surface, Meep computes equivalent currents and convolves them with the analytical Green's functions in order to compute the fields at any desired point in the "far" region. For details, see Section 4.2.1 ("The Principle of Equivalence") in [Chapter 4](http://arxiv.org/abs/arXiv:1301.5366) ("Electromagnetic Wave Source Conditions") of the book [Advances in FDTD Computational Electrodynamics: Photonics and Nanotechnology](https://www.amazon.com/Advances-FDTD-Computational-Electrodynamics-Nanotechnology/dp/1608071707). Since the "far" fields are computed using the full Green's functions, they should be able to be computed *anywhere* outside of the near-field surface monitor. The only limiting factor should be discretization errors but for any given distance, the "far" fields should converge to the actual DFT fields at that location with resolution (assuming the distance separation is >> resolution).
 
 There are three steps to using the near-to-far-field feature: first, define the "near" surface(s) as a set of surfaces capturing *all* outgoing radiation in the desired direction(s); second, run the simulation, typically with a pulsed source, to allow Meep to accumulate the Fourier transforms on the near surface(s); third, tell Meep to compute the far fields at any desired points (optionally saving the far fields from a grid of points to an HDF5 file). To define the near surfaces, use this `Simulation` method:
 
@@ -2430,7 +2449,7 @@ is a 1d array of `nfreq` dimensions.
 These functions add support for saving and restoring parts of the
 `Simulation` state.
 
-For all functions listed below, when dumping/loading state to/from a distributed filesystem
+For all functions listed below, when dumping/loading state to/from a distributed file system
 (using say, parallel HDF5) and running in an MPI environment, setting
 `single_parallel_file=True` (the default) will result in all
 processes writing/reading to/from the same/single file after computing their respective offsets into this file.
@@ -2518,12 +2537,13 @@ sim2.run(...)
 
 #### Load and Dump Fields
 
-These functions can be used to dump (and later load) the time-domain fields, auxiliary
-fields for PMLs, polarization fields (for dispersive materials), and the DFT fields
-at a certain timestamp. The timestamp at which the dump happens is also saved so that
-the simulation can continue from where it was saved. The one pre-requisite of this
-feature is that it needs the `Simulation` object to have been setup *exactly* the
-same as the one it was dumped from.
+These functions can be used to dump (and later load) the time-domain
+fields and the DFT fields at a certain timestamp. Polarization fields
+for dispersive materials are *not* supported. The timestamp at which
+the dump happens is also saved so that the simulation can continue
+from where it was saved. The one prerequisite of this feature is that
+it needs the `Simulation` object to have been setup *exactly* the same
+as the one it was dumped from.
 
 
 <a id="Simulation.dump_fields"></a>
@@ -2748,7 +2768,7 @@ def plot2D(self,
            ax: Optional[matplotlib.axes._axes.Axes] = None,
            output_plane: Optional[meep.simulation.Volume] = None,
            fields: Optional = None,
-           labels: Optional[bool] = False,
+           labels: bool = False,
            eps_parameters: Optional[dict] = None,
            boundary_parameters: Optional[dict] = None,
            source_parameters: Optional[dict] = None,
@@ -2802,7 +2822,7 @@ to be called on all processes, but only generates a plot on the master process.
   `mp.Hz`) to superimpose over the simulation geometry. Default is `None`, where
   no fields are superimposed.
 * `labels`: if `True`, then labels will appear over each of the simulation
-  elements.
+  elements. Defaults to `False`.
 * `eps_parameters`: a `dict` of optional plotting parameters that override the
   default parameters for the geometry.
     - `interpolation='spline36'`: interpolation algorithm used to upsample the pixels.
@@ -2879,13 +2899,25 @@ ipympl to be installed.
 <div class="class_members" markdown="1">
 
 ```python
-def plot3D(self):
+def plot3D(self,
+           save_to_image: bool = False,
+           image_name: str = 'sim.png',
+           **kwargs):
 ```
 
 <div class="method_docstring" markdown="1">
 
-Uses Mayavi to render a 3D simulation domain. The simulation object must be 3D.
+Uses vispy to render a 3D scene of the simulation object. The simulation object must be 3D.
 Can also be embedded in Jupyter notebooks.
+
+Args:
+    save_to_image: if True, saves the image to a file
+    image_name: the name of the image file to save to
+
+kwargs: Camera settings.
+    scale_factor: float, camera zoom factor
+    azimuth: float, azimuthal angle in degrees
+    elevation: float, elevation angle in degrees
 
 </div>
 
@@ -3204,7 +3236,6 @@ accurately. See [Synchronizing the Magnetic and Electric
 Fields](Synchronizing_the_Magnetic_and_Electric_Fields.md).
 
 </div>
-
 
 <a id="output_hpwr"></a>
 
@@ -3787,39 +3818,37 @@ The output functions described above write the data for the fields and materials
 
 ```python
 def get_array(self,
-              component=None,
-              vol=None,
-              center=None,
-              size=None,
-              cmplx=None,
-              arr=None,
-              frequency=0,
-              snap=False):
+              component: int = None,
+              vol: meep.simulation.Volume = None,
+              center: Union[meep.geom.Vector3, Tuple[float, ...]] = None,
+              size: Union[meep.geom.Vector3, Tuple[float, ...]] = None,
+              cmplx: bool = None,
+              arr: Optional[numpy.ndarray] = None,
+              frequency: float = 0,
+              snap: bool = False):
 ```
 
 <div class="method_docstring" markdown="1">
 
-Takes as input a subregion of the cell and the field/material component. The
-method returns a NumPy array containing values of the field/material at the
-current simulation time.
+Returns a slice of the materials or time-domain fields over a subregion of the cell at the
+current simulation time as a NumPy array. The materials/fields are centered on the Yee-grid voxels
+using a bilinear interpolation of the nearest Yee-grid points.
 
-**Parameters:**
++ **`component` [ `component` constant ]** — The field or material component (e.g., `meep.Ex`,
+  `meep.Hy`, `meep.Sz`, `meep.Dielectric`, etc) of the array data. No default.
 
-+ `vol`: `Volume`; the orthogonal subregion/slice of the computational volume. The
-  return value of `get_array` has the same dimensions as the `Volume`'s `size`
++ **`vol` [ `Volume` ]** — The rectilinear subregion/slice of the cell volume.
+  The return value of `get_array` has the same dimensions as the `Volume`'s `size`
   attribute. If `None` (default), then a `size` and `center` must be specified.
 
-+ `center`, `size` : `Vector3`; if both are specified, the library will construct
++ **`center`, `size` [ `Vector3` ]** — If both are specified, the method will construct
   an appropriate `Volume`. This is a convenience feature and alternative to
   supplying a `Volume`.
 
-+ `component`: field/material component (i.e., `mp.Ex`, `mp.Hy`, `mp.Sz`,
-  `mp.Dielectric`, etc). Defaults to `None`.
-
-+ `cmplx`: `boolean`; if `True`, return complex-valued data otherwise return
++ **`cmplx` [ `boolean` ]** — If `True`, return complex-valued data otherwise return
   real-valued data (default).
 
-+ `arr`: optional parameter to pass a pre-allocated NumPy array of the correct size and
++ **`arr` [ `numpy.ndarray` ]** — Optional parameter to pass a pre-allocated NumPy array of the correct size and
   type (either `numpy.float32` or `numpy.float64` depending on the [floating-point precision
   of the fields and materials](Build_From_Source.md#floating-point-precision-of-the-fields-and-materials-arrays))
   which will be overwritten with the field/material data instead of allocating a
@@ -3827,13 +3856,12 @@ current simulation time.
   `get_array` for a similar slice, allowing one to re-use `arr` (e.g., when
   fetching the same slice repeatedly at different times).
 
-+ `frequency`: optional frequency point over which the average eigenvalue of the
++ **`frequency` [ `number` ]** — The frequency at which the average eigenvalue of the
   $\varepsilon$ and $\mu$ tensors are evaluated. Defaults to 0 which is the
   instantaneous $\varepsilon$.
 
-+ `snap`: By default, the elements of the grid slice are obtained using a bilinear
-  interpolation of the nearest Yee grid points. Empty dimensions of the grid slice
-  are "collapsed" into a single element. However, if `snap` is set to `True`, this
++ **`snap` [ `boolean` ]** — Empty dimensions of the grid slice are "collapsed"
+  into a single element. However, if `snap` is set to `True`, this
   interpolation behavior is disabled and the grid slice is instead "snapped"
   everywhere to the nearest grid point. (Empty slice dimensions are still of size
   one.) This feature is mainly useful for comparing results with the
@@ -3870,22 +3898,23 @@ arrays; rather, you should simply rely on Meep's output.
 <div class="class_members" markdown="1">
 
 ```python
-def get_dft_array(self, dft_obj, component, num_freq):
+def get_dft_array(self,
+                  dft_obj: meep.simulation.DftObj = None,
+                  component: int = None,
+                  num_freq: int = None):
 ```
 
 <div class="method_docstring" markdown="1">
 
 Returns the Fourier-transformed fields as a NumPy array. The type is either `numpy.complex64`
-or `numpy.complex128` depending on the [floating-point precision of the fields](Build_From_Source.md#floating-point-precision-of-the-fields-and-materials-arrays).
+or `numpy.complex128` depending on the [floating-point precision of the fields](Build_From_Source.md#floating-point-precision-of-the-fields-and-materials-arrays). The DFT fields are centered on the Yee-grid voxels using bilinear interpolation of the nearest Yee-grid points.
 
-**Parameters:**
-
-+ `dft_obj`: a `dft_flux`, `dft_force`, `dft_fields`, or `dft_near2far` object
++ **`dft_obj` [ `DftObj` class ]** — A `dft_flux`, `dft_force`, `dft_fields`, or `dft_near2far` object
   obtained from calling the appropriate `add` function (e.g., `mp.add_flux`).
 
-+ `component`: a field component (e.g., `mp.Ez`).
++ **`component` [ `component` constant ]**— The field component (e.g., `meep.Ez`).
 
-+ `num_freq`: the index of the frequency. An integer in the range `0...nfreq-1`,
++ **`num_freq` [ `int` ]** — The index of the frequency. An integer in the range `0...nfreq-1`,
   where `nfreq` is the number of frequencies stored in `dft_obj` as set by the
   `nfreq` parameter to `add_dft_fields`, `add_flux`, etc.
 
@@ -4038,6 +4067,13 @@ Not supported for [cylindrical coordinates](Python_Tutorials/Cylindrical_Coordin
 The following step function collects field data from a given point and runs [Harminv](https://github.com/NanoComp/harminv) on that data to extract the frequencies, decay rates, and other information.
 
 * [Harminv class](#Harminv)
+
+
+#### PadeDFT Step Function
+
+The following step function collects field data from a given point or volume and performs spectral extrapolation by computing the [Padé approximant](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.pade.html) of the DFT at every specified spatial point.
+
+* [PadeDFT class](#PadeDFT)
 
 
 ### Step-Function Modifiers
@@ -4650,15 +4686,15 @@ argument of the [`Simulation`](#Simulation) constructor (similar to a [material 
 
 ```python
 def __init__(self,
-             grid_size,
-             medium1,
-             medium2,
-             weights=None,
-             grid_type='U_DEFAULT',
-             do_averaging=True,
-             beta=0,
-             eta=0.5,
-             damping=0):
+             grid_size: Union[meep.geom.Vector3, Tuple[float, ...]],
+             medium1: meep.geom.Medium,
+             medium2: meep.geom.Medium,
+             weights: numpy.ndarray = None,
+             grid_type: str = 'U_DEFAULT',
+             do_averaging: bool = True,
+             beta: float = 0,
+             eta: float = 0.5,
+             damping: float = 0):
 ```
 
 <div class="method_docstring" markdown="1">
@@ -4675,6 +4711,7 @@ The grid points are defined at the corners of the voxels.
 ![](images/material_grid.png#center)
 
 Elements of the `weights` array must be in the range [0,1] where 0 is `medium1` and 1 is `medium2`.
+An array of boolean values `False` and `True` will be converted to 0 and 1, respectively.
 The `weights` array is used to define a linear interpolation from `medium1` to `medium2`.
 Two material types are supported: (1) frequency-independent isotropic $\varepsilon$ (`epsilon_diag`
 and `epsilon_offdiag` are interpolated) and (2) `LorentzianSusceptibility` (`sigma` and `sigma_offdiag`
@@ -4686,7 +4723,8 @@ For improving accuracy, [subpixel smoothing](Subpixel_Smoothing.md) can be enabl
 `do_averaging=True`. If you want to use a material grid to define a (nearly) discontinuous,
 piecewise-constant material that is *either* `medium1` or `medium2` almost everywhere, you can
 optionally enable a (smoothed) *projection* feature by setting the parameter `beta` to a
-positive value. When the projection feature is enabled, the weights $u(x)$ can be thought of as a
+positive value. The default is no projection (`beta=0`). When the projection feature is
+enabled, the weights $u(x)$ can be thought of as a
 [level-set function](https://en.wikipedia.org/wiki/Level-set_method) defining an interface at
 $u(x)=\eta$ with a smoothing factor $\beta$ where $\beta=+\infty$ gives an unsmoothed,
 discontinuous interface. The projection operator is $(\tanh(\beta\times\eta)
@@ -4695,7 +4733,12 @@ involving the parameters `beta` ($\beta$: bias or "smoothness" of the turn on) a
 ($\eta$: offset for erosion/dilation). The level set provides a general approach for defining
 a *discontinuous* function from otherwise continuously varying (via the bilinear interpolation)
 grid values. Subpixel smoothing is fast and accurate because it exploits an analytic formulation
-for level-set functions.
+for level-set functions. Note that when subpixel smoothing is enabled via `do_averaging=True`,
+projecting the `weights` is done internally using the `beta` parameter. It is therefore not
+necessary to manually project the `weights` outside of `MaterialGrid`. However, visualizing
+the `weights` used to define the structure does require manually projecting the `weights` yourself.
+(Alternatively, you can output the actual structure using [`plot2D`](#data-visualization) or
+[`output_epsilon`](#output-functions_1).)
 
 A nonzero `damping` term creates an artificial conductivity $\sigma = u(1-u)*$`damping`, which acts as
 dissipation loss that penalizes intermediate pixel values of non-binarized structures. The value of
@@ -4719,7 +4762,7 @@ allow you to combine any material grids that overlap in space with no intervenin
 <div class="class_members" markdown="1">
 
 ```python
-def update_weights(self, x):
+def update_weights(self, x: numpy.ndarray):
 ```
 
 <div class="method_docstring" markdown="1">
@@ -6259,7 +6302,7 @@ def __init__(self,
              side: int = -1,
              R_asymptotic: float = 1e-15,
              mean_stretch: float = 1.0,
-             pml_profile: Callable[[float], float] = <function <lambda> at 0x7f41474eeb00>):
+             pml_profile: Callable[[float], float] = lambda u: u * u,
 ```
 
 <div class="method_docstring" markdown="1">
@@ -6672,26 +6715,26 @@ Returns the total power of the fields from the eigenmode source at frequency `fr
 
 
 ---
-<a id="GaussianBeamSource"></a>
+<a id="GaussianBeam3DSource"></a>
 
-### GaussianBeamSource
+### GaussianBeam3DSource
 
 ```python
-class GaussianBeamSource(Source):
+class GaussianBeam3DSource(Source):
 ```
 
 <div class="class_docstring" markdown="1">
 
-This is a subclass of `Source` and has **all of the properties** of `Source` above. However, the `component` parameter of the `Source` object is ignored. The [Gaussian beam](https://en.wikipedia.org/wiki/Gaussian_beam) is a transverse electromagnetic mode for which the source region must be a *line* (in 2d) or *plane* (in 3d). For a beam polarized in the $x$ direction with propagation along $+z$, the electric field is defined by $\mathbf{E}(r,z)=E_0\hat{x}\frac{w_0}{w(z)}\exp\left(\frac{-r^2}{w(z)^2}\right)\exp\left(-i\left(kz + k\frac{r^2}{2R(z)}\right)\right)$ where $r$ is the radial distance from the center axis of the beam, $z$ is the axial distance from the beam's focus (or "waist"), $k=2\pi n/\lambda$ is the wavenumber (for a free-space wavelength $\lambda$ and refractive index $n$ of the homogeneous, lossless medium in which the beam propagates), $E_0$ is the electric field amplitude at the origin, $w(z)$ is the radius at which the field amplitude decays by $1/e$ of its axial values, $w_0$ is the beam waist radius, and $R(z)$ is the radius of curvature of the beam's wavefront at $z$. The only independent parameters that need to be specified are $w_0$, $E_0$, $k$, and the location of the beam focus (i.e., the origin: $r=z=0$).
+This is a subclass of `Source` and has **all of the properties** of `Source` above. However, the `component` parameter of the `Source` object is ignored. The [Gaussian beam](https://en.wikipedia.org/wiki/Gaussian_beam) is a transverse electromagnetic mode for which the source region must be a *line* (in 2d) or *plane* (in 3d). For a beam polarized in the $x$ direction with propagation along $+z$, the electric field is defined by $\mathbf{E}(r,z)=E_0\hat{x}\frac{w_0}{w(z)}\exp\left(\frac{-r^2}{w(z)^2}\right)\exp\left(-i\left(kz + k\frac{r^2}{2R(z)}\right)\right)$ where $r$ is the radial distance from the center axis of the beam, $z$ is the axial distance from the beam's focus (or "waist"), $k=2\pi n/\lambda$ is the wavenumber (for a free-space wavelength $\lambda$ and refractive index $n$ of the homogeneous, lossless medium in which the beam propagates), $E_0$ is the electric-field amplitude at the origin, $w(z)$ is the radius at which the field amplitude decays by $1/e$ of its axial values, $w_0$ is the beam waist radius, and $R(z)$ is the radius of curvature of the beam's wavefront at $z$. The only independent parameters that need to be specified are $w_0$, $E_0$, $k$, and the location of the beam focus (i.e., the origin: $r=z=0$).
 
-(In 3d, we use a ["complex point-source" method](https://doi.org/10.1364/JOSAA.16.001381) to define a source that generates an exact Gaussian-beam solution.  In 2d, we currently use the simple approximation of taking a cross-section of the 3d beam.  In both cases, the beam is most accurate near the source's center frequency.)
+In 3d, we use a ["complex point-source" method](https://doi.org/10.1364/JOSAA.16.001381) to define a source that generates an exact Gaussian-beam solution.  In 2d, we currently use the simple approximation of taking a cross-section of the 3d beam.  In both cases, the beam is most accurate near the source's center frequency.) To use the true solution for a 2d Gaussian beam, use the `GaussianBeam2DSource` class instead.
 
-The `SourceTime` object (`Source.src`), which specifies the time dependence of the source, should normally be a narrow-band `ContinuousSource` or `GaussianSource`.  (For a `CustomSource`, the beam frequency is determined by the source's `center_frequency` parameter.)
+The `SourceTime` object (`Source.src`), which specifies the time dependence of the source, should normally be a narrow-band `ContinuousSource` or `GaussianSource`.  (For a `CustomSource`, the beam frequency is determined by the source's `center_frequency` parameter.
 
 </div>
 
 
-<a id="GaussianBeamSource.__init__"></a>
+<a id="GaussianBeam3DSource.__init__"></a>
 
 <div class="class_members" markdown="1">
 
@@ -6726,6 +6769,23 @@ Construct a `GaussianBeamSource`.
 
 
 ---
+<a id="GaussianBeam2DSource"></a>
+
+### GaussianBeam2DSource
+
+```python
+class GaussianBeam2DSource(GaussianBeam3DSource):
+```
+
+<div class="class_docstring" markdown="1">
+
+Identical to `GaussianBeam3DSource` except that the beam is defined in 2d.
+This is useful for 2d simulations where the 3d beam is not exact.
+
+</div>
+
+
+---
 <a id="ContinuousSource"></a>
 
 ### ContinuousSource
@@ -6755,7 +6815,8 @@ def __init__(self,
              end_time=1e+20,
              width=0,
              fwidth=inf,
-             cutoff=3.0,
+             cutoff=None,
+             slowness=3.0,
              wavelength=None,
              is_integrated=False,
              **kwargs):
@@ -6785,7 +6846,9 @@ Construct a `ContinuousSource`.
 
 + **`slowness` [`number`]** — Controls how far into the exponential tail of the
   tanh function the source turns on. Default is 3.0. A larger value means that the
-  source turns on more gradually at the beginning.
+  source turns on more gradually at the beginning. For a detailed explanation
+  of the effects of `width` and `slowness` on the time profile of the source,
+  see [here](FAQ.md##why-doesnt-the-continuous-wave-cw-source-produce-an-exact-single-frequency-response).
 
 + **`is_integrated` [`boolean`]** — If `True`, the source is the integral of the
   current (the [dipole
@@ -7434,6 +7497,125 @@ of the run, it uses Harminv to look for modes in the given frequency range (cent
 `harminv:`) as comma-delimited text, and also storing them to the variable
 `Harminv.modes`. The optional argument `mxbands` is the maximum number of modes to
 search for. Defaults to 100.
+
+</div>
+
+</div>
+
+
+---
+<a id="PadeDFT"></a>
+
+### PadeDFT
+
+```python
+class PadeDFT(object):
+```
+
+<div class="class_docstring" markdown="1">
+
+Padé approximant based spectral extrapolation is implemented as a class with a [`__call__`](#PadeDFT.__call__) method,
+which allows it to be used as a step function that collects field data from a given
+point and runs [Padé](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.pade.html)
+on that data to extract an analytic rational function which approximates the frequency response.
+For more information about the Padé approximant, see the [Wikipedia article](https://en.wikipedia.org/wiki/Padé_approximant).
+
+See [`__init__`](#PadeDFT.__init__) for details about constructing a `PadeDFT`.
+
+In particular, `PadeDFT` stores the discrete time series $\hat{f}[n]$ corresponding to the given field
+component as a function of time and expresses it as:
+
+$$\hat{f}(\omega) = \sum_n \hat{f}[n] e^{i\omega n \Delta t}$$
+
+The above is a "Taylor-like" polynomial in $n$ with a Fourier basis and
+coefficients which are the sampled field data. We then compute the Padé approximant
+to be the analytic form of this function as:
+
+$$R(f) = R(\omega / 2\pi) = \frac{P(f)}{Q(f)}$$
+
+Where $P$ and $Q$ are polynomials of degree $m$ and $n$, and $m + n + 1$ is the
+degree of agreement of the Padé approximant to the analytic function $f(\omega / 2\pi)$. This
+function $R$ is stored in the callable method `pade_instance.dft`. Note that the computed polynomials
+$P$ and $Q$ for each spatial point are stored as well in the instance variable `pade_instance.polys`,
+as a spatial array of dicts: `[{"P": P(t), "Q": Q(t)}]` with no spectral extrapolation performed.
+Be sure to save a reference to the `Pade` instance if you wish
+to use the results after the simulation:
+
+```py
+sim = mp.Simulation(...)
+p = mp.PadeDFT(...)
+sim.run(p, until=time)
+# do something with p.dft
+```
+
+</div>
+
+
+<a id="PadeDFT.__call__"></a>
+
+<div class="class_members" markdown="1">
+
+```python
+def __call__(self, sim, todo):
+```
+
+<div class="method_docstring" markdown="1">
+
+Allows a PadeDFT instance to be used as a step function.
+
+</div>
+
+</div>
+
+
+<a id="PadeDFT.__init__"></a>
+
+<div class="class_members" markdown="1">
+
+```python
+def __init__(self,
+             c: int = None,
+             vol: meep.simulation.Volume = None,
+             center: Union[meep.geom.Vector3, Tuple[float, ...]] = None,
+             size: Union[meep.geom.Vector3, Tuple[float, ...]] = None,
+             m: Optional[int] = None,
+             n: Optional[int] = None,
+             m_frac: float = 0.5,
+             n_frac: Optional[float] = None,
+             sampling_interval: int = 1,
+             start_time: int = 0,
+             stop_time: Optional[int] = None):
+```
+
+<div class="method_docstring" markdown="1">
+
+Construct a Padé DFT object.
+
+A `PadeDFT` is a step function that collects data from the field component `c`
+(e.g. `meep.Ex`, etc.) at the given point `pt` (a `Vector3`). Then, at the end
+of the run, it uses the scipy Padé algorithm to approximate the analytic
+frequency response at the specified point.
+
++ **`c` [ `component` constant ]** — The field component to use for extrapolation.
+  No default.
++ **`vol` [ `Volume` class ]** — The volume over which to accumulate the fields
+  (may be 0d, 1d, 2d, or 3d). No default.
++ **`center` [ `Vector3` class ]** — Alternative method for specifying volume, using a center point
++ **`size` [ `Vector3` class ]** — Alternative method for specifying volume, using a size vector
++ **`m` [ `int` ]** — The order of the numerator $P$. If not specified,
+  defaults to the length of aggregated field data times `m_frac`.
++ **`n` [ `int` ]** — The order of the denominator $Q$. Defaults
+  to length of field data - `m` - 1.
++ **`m_frac` [ `float` ]** — Method for specifying `m` as a fraction of
+  field samples to use as the order for numerator. Default is 0.5.
++ **`n_frac` [ `float` ]** — Fraction of field samples to use as order for
+  denominator. No default.
++ **`sampling_interval` [ `int` ]** — The interval at which to sample the field data.
+  Defaults to 1.
++ **`start_time` [ `int` ]** — The time (in increments of $\Delta t$) at which
+  to start sampling the field data. Default is 0 (beginning of simulation).
++ **`stop_time` [ `int` ]** — The time (in increments of $\Delta t$) at which
+  to stop sampling the field data. Default is `None` (end of simulation).
 
 </div>
 

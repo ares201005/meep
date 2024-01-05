@@ -325,54 +325,50 @@ The extraction efficiency is defined as the ratio of the power extracted from th
 
 A more efficient approach to computing the total emitted power from the dipole is to use the LDOS. In particular, the terms in the numerator from the LDOS expression above are exactly equivalent to the emitted power: $$-\operatorname{Re}[\hat{E}_{\ell}(\vec{x}_0,\omega)\hat{p}(\omega)^*].$$ The Fourier-transformed electric field $\hat{E}_{\ell}(\vec{x}_0,\omega)$ and current source $\hat{p}(\omega)$ can be obtained using the `ldos_Fdata` and `ldos_Jdata` members of the `Simulation` class object, respectively. The LDOS approach has the advantage that it involves just a single point monitor (colocated with the dipole source) and thus does not require the expense of collecting DFT fields for the flux through an enclosing box (and in some circumstances resolving the Poynting flux may also require higher resolution).
 
-To demonstrate this feature of the LDOS, we will compute the extraction efficiency of an LED-like structure consisting of a point dipole embedded within a dielectric layer ($n$=2.4 and thickness 0.7 $\lambda/n$) surrounded by vacuum and positioned above an infinite ground plane of a lossless metal. We will compute the extraction efficiency (at a wavelength $\lambda$ = 1.0 μm for a dipole with polarization parallel to the ground plane) as a function of the height of the dipole source above the ground plane using two different coordinate systems — 3D Cartesian and cylindrical — and demonstrate that the results are equivalent (apart from discretization error). The simulation setup is shown in the figures below for 3D Cartesian (cross section in $xz$) and cylindrical coordinates. (Note that this single-dipole calculation differs from the somewhat related flux calculation in [Tutorials/Custom Source/Stochastic Dipole Emission in Light Emitting Diodes](Custom_Source.md#stochastic-dipole-emission-in-light-emitting-diodes) which involved modeling a *collection* of dipoles.)
+To demonstrate this feature of the LDOS, we will compute the extraction efficiency of an LED-like structure consisting of a point dipole embedded within a dielectric layer ($n$=2.4 and thickness 0.7 $\lambda/n$) surrounded by vacuum and positioned above an infinite ground plane of a lossless metal. We will compute the extraction efficiency (at a wavelength $\lambda$ = 1.0 μm for a dipole with polarization parallel to the ground plane) as a function of the height of the dipole source above the ground plane using two different coordinate systems — 3D Cartesian and cylindrical — and demonstrate that the results are equivalent (apart from discretization error). The key difference is that simulation using cylindrical (2D) coordinates is significantly faster and more memory efficient than 3D.
+
+The simulation setup is shown in the figures below for 3D Cartesian (cross section in $xz$) and cylindrical coordinates. (Note that this single-dipole calculation differs from the somewhat related flux calculation in [Tutorials/Custom Source/Stochastic Dipole Emission in Light Emitting Diodes](Custom_Source.md#stochastic-dipole-emission-in-light-emitting-diodes) which involved modeling a *collection* of dipoles.) In this example, the point-dipole source is positioned at $r=0$ which involves a single simulation. Nonaxisymmetric dipoles positioned at $r>0$, however, are more challenging because they involve multiple simulations. For a demonstration, see [Cylindrical Coordinates/Nonaxisymmetric Dipole Sources](Cylindrical_Coordinates.md#nonaxisymmetric-dipole-sources).
+
+Note: because of a [bug](https://github.com/NanoComp/meep/issues/2704) for an $E_r$ point source at $r = 0$ and $m = \pm 1$ simulation, it is necessary to slightly offset the source to $r = 1.5\Delta r$. This incurs a small error which decreases linearly with resolution.
 
 ![](../images/dipole_extraction_eff_3D.png#center)
 
 ![](../images/dipole_extraction_eff_cyl.png#center)
 
-Simulation using cylindrical (2D) coordinates is significantly faster and more memory efficient than 3D. However, care must be taken to ensure that the pulsed source in cylindrical coordinates is (1) narrow bandwidth *and* (2) turns on/off smoothly. These two properties are necessary to avoid abruptly turning the source on and off which can generate high-frequency spectral components at the Nyquist frequency of the grid. These components have zero group velocity and we have observed that they decay particularly slowly near the origin in cylindrical coordinates. The net result is that these residual fields will fail to decay away and thus preclude the convergence of the DFT monitors (and hence the LDOS itself). Because of the inverse relationship between frequency and time domain, a narrowband and long-cutoff source involves a longer time duration. In this example, the `cutoff` property of the `GaussianSource` is doubled to 10 from its default value of 5. The spectral bandwidth (`fwidth`) is 5% of the center frequency of 1.0.
-
-Finally, the total emitted power obtained using the formula above must be multiplied by $\Delta V$, the volume of the voxel. In cylindrical coordinates, $\Delta V$ for a source at the origin turns out to be $\pi/(resolution)^3$ and in 3D it is $1/(resolution)^3$.
+The total emitted power obtained from the LDOS terms of the formula above must be multiplied by $\Delta V$, the volume of the voxel. In cylindrical coordinates, $\Delta V = \Delta r \times \Delta z \times 2 \pi r$. Meep implements an $r = 0$ source at $r = 0.5 \Delta r$, corresponding to the smallest-$r$ $E_r$ Yee grid point. This means that for a source at $r = 0$, $\Delta V = \pi / resolution^3$ since $\Delta r = \Delta z = 1 / resolution$. In 3D, $\Delta V = \Delta x \times \Delta y \times \Delta z = 1 / resolution^3$ for every voxel in the cell.
 
 As shown in the figure below, the results from the two coordinate systems have good agreement.
 
 The simulation script is [examples/extraction_eff_ldos.py](https://github.com/NanoComp/meep/blob/master/python/examples/extraction_eff_ldos.py).
 
 ```py
-import numpy as np
-import meep as mp
-import matplotlib
-matplotlib.use('agg')
 import matplotlib.pyplot as plt
+import meep as mp
+import numpy as np
 
 
 resolution = 80  # pixels/μm
-dpml = 0.5       # thickness of PML
-dair = 1.0       # thickness of air padding
-L = 6.0          # length of non-PML region
-n = 2.4          # refractive index of surrounding medium
-wvl = 1.0        # wavelength (in vacuum)
+dpml = 0.5  # thickness of PML
+dair = 1.0  # thickness of air padding
+L = 6.0  # length of non-PML region
+n = 2.4  # refractive index of surrounding medium
+wvl = 1.0  # wavelength (in vacuum)
 
-fcen = 1 / wvl   # center frequency of source/monitor
+fcen = 1 / wvl  # center frequency of source/monitor
 
-# source properties (cylindrical)
-df = 0.05 * fcen
-cutoff = 10.0
-src = mp.GaussianSource(fcen, fwidth=df, cutoff=cutoff)
-
-# termination criteria
+# runtime termination criteria
 tol = 1e-8
 
 
 def extraction_eff_cyl(dmat: float, h: float) -> float:
-    """Computes the extraction efficiency of a point dipole embedded
-       within a dielectric layer above a lossless ground plane in
-       cylindrical coordinates.
+    """Computes the extraction efficiency in cylindrical coordinates.
 
-       Args:
-         dmat: thickness of dielectric layer.
-         h: height of dipole above ground plane as fraction of dmat.
+    Args:
+      dmat: thickness of dielectric layer.
+      h: height of dipole above ground plane as fraction of dmat.
+
+    Returns:
+      The extraction efficiency of the dipole within the dielecric layer.
     """
     sr = L + dpml
     sz = dmat + dair + dpml
@@ -384,8 +380,21 @@ def extraction_eff_cyl(dmat: float, h: float) -> float:
     ]
 
     src_cmpt = mp.Er
-    src_pt = mp.Vector3(0, 0, -0.5 * sz + h * dmat)
-    sources = [mp.Source(src=src, component=src_cmpt, center=src_pt)]
+
+    # Because (1) Er is not defined at r=0 on the Yee grid, and (2) there
+    # seems to be a bug in the interpolation of an Er point source at r=0,
+    # the source is placed at r=~Δr (just outside the first voxel).
+    # This incurs a small error which decreases linearly with resolution.
+    # Ref: https://github.com/NanoComp/meep/issues/2704
+    src_pt = mp.Vector3(1.5 / resolution, 0, -0.5 * sz + h * dmat)
+
+    sources = [
+        mp.Source(
+            src=mp.GaussianSource(fcen, fwidth=0.1 * fcen),
+            component=src_cmpt,
+            center=src_pt,
+        )
+    ]
 
     geometry = [
         mp.Block(
@@ -421,29 +430,30 @@ def extraction_eff_cyl(dmat: float, h: float) -> float:
 
     sim.run(
         mp.dft_ldos(fcen, 0, 1),
-        until_after_sources=mp.stop_when_fields_decayed(
-            20, src_cmpt, src_pt, tol
-        ),
+        until_after_sources=mp.stop_when_fields_decayed(20, src_cmpt, src_pt, tol),
     )
 
     out_flux = mp.get_fluxes(flux_air)[0]
-    dV = np.pi / (resolution**3)
+    if src_pt.x == 0:
+        dV = np.pi / (resolution**3)
+    else:
+        dV = 2 * np.pi * src_pt.x / (resolution**2)
     total_flux = -np.real(sim.ldos_Fdata[0] * np.conj(sim.ldos_Jdata[0])) * dV
     ext_eff = out_flux / total_flux
-    print(f"extraction efficiency (cyl):, "
-          f"{dmat:.4f}, {h:.4f}, {ext_eff:.6f}")
+    print(f"extraction efficiency (cyl):, " f"{dmat:.4f}, {h:.4f}, {ext_eff:.6f}")
 
     return ext_eff
 
 
 def extraction_eff_3D(dmat: float, h: float) -> float:
-    """Computes the extraction efficiency of a point dipole embedded
-       within a dielectric layer above a lossless ground plane in
-       3D Cartesian coordinates.
+    """Computes the extraction efficiency in 3D Cartesian coordinates.
 
-       Args:
-         dmat: thickness of dielectric layer.
-         h: height of dipole above ground plane as fraction of dmat.
+    Args:
+      dmat: thickness of dielectric layer.
+      h: height of dipole above ground plane as fraction of dmat.
+
+    Returns:
+      The extraction efficiency of the dipole within the dielecric layer.
     """
     sxy = L + 2 * dpml
     sz = dmat + dair + dpml
@@ -451,7 +461,7 @@ def extraction_eff_3D(dmat: float, h: float) -> float:
 
     symmetries = [
         mp.Mirror(direction=mp.X, phase=-1),
-        mp.Mirror(direction=mp.Y)
+        mp.Mirror(direction=mp.Y),
     ]
 
     boundary_layers = [
@@ -496,28 +506,20 @@ def extraction_eff_3D(dmat: float, h: float) -> float:
             size=mp.Vector3(L, L, 0),
         ),
         mp.FluxRegion(
-            center=mp.Vector3(
-                0.5 * L, 0, 0.5 * sz - dpml - 0.5 * dair
-            ),
+            center=mp.Vector3(0.5 * L, 0, 0.5 * sz - dpml - 0.5 * dair),
             size=mp.Vector3(0, L, dair),
         ),
         mp.FluxRegion(
-            center=mp.Vector3(
-                -0.5 * L, 0, 0.5 * sz - dpml - 0.5 * dair
-            ),
+            center=mp.Vector3(-0.5 * L, 0, 0.5 * sz - dpml - 0.5 * dair),
             size=mp.Vector3(0, L, dair),
             weight=-1.0,
         ),
         mp.FluxRegion(
-            center=mp.Vector3(
-                0, 0.5 * L, 0.5 * sz - dpml - 0.5 * dair
-            ),
+            center=mp.Vector3(0, 0.5 * L, 0.5 * sz - dpml - 0.5 * dair),
             size=mp.Vector3(L, 0, dair),
         ),
         mp.FluxRegion(
-            center=mp.Vector3(
-                0, -0.5 * L, 0.5 * sz - dpml - 0.5 * dair
-            ),
+            center=mp.Vector3(0, -0.5 * L, 0.5 * sz - dpml - 0.5 * dair),
             size=mp.Vector3(L, 0, dair),
             weight=-1.0,
         ),
@@ -525,24 +527,21 @@ def extraction_eff_3D(dmat: float, h: float) -> float:
 
     sim.run(
         mp.dft_ldos(fcen, 0, 1),
-        until_after_sources=mp.stop_when_fields_decayed(
-            20, src_cmpt, src_pt, tol
-        ),
+        until_after_sources=mp.stop_when_fields_decayed(20, src_cmpt, src_pt, tol),
     )
 
     out_flux = mp.get_fluxes(flux_air)[0]
     dV = 1 / (resolution**3)
     total_flux = -np.real(sim.ldos_Fdata[0] * np.conj(sim.ldos_Jdata[0])) * dV
     ext_eff = out_flux / total_flux
-    print(f"extraction efficiency (3D):, "
-          f"{dmat:.4f}, {h:.4f}, {ext_eff:.6f}")
+    print(f"extraction efficiency (3D):, {dmat:.4f}, {h:.4f}, {ext_eff:.6f}")
 
     return ext_eff
 
 
 if __name__ == "__main__":
     layer_thickness = 0.7 * wvl / n
-    dipole_height = np.linspace(0.1,0.9,21)
+    dipole_height = np.linspace(0.1, 0.9, 21)
 
     exteff_cyl = np.zeros(len(dipole_height))
     exteff_3D = np.zeros(len(dipole_height))
@@ -550,19 +549,14 @@ if __name__ == "__main__":
         exteff_cyl[j] = extraction_eff_cyl(layer_thickness, dipole_height[j])
         exteff_3D[j] = extraction_eff_3D(layer_thickness, dipole_height[j])
 
-    plt.plot(dipole_height,exteff_cyl,'bo-',label='cylindrical')
-    plt.plot(dipole_height,exteff_3D,'ro-',label='3D Cartesian')
-    plt.xlabel(f"height of dipole above ground plane "
-               f"(fraction of layer thickness)")
+    plt.plot(dipole_height, exteff_cyl, "bo-", label="cylindrical")
+    plt.plot(dipole_height, exteff_3D, "ro-", label="3D Cartesian")
+    plt.xlabel("height of dipole above ground plane (fraction of layer thickness)")
     plt.ylabel("extraction efficiency")
     plt.legend()
 
     if mp.am_master():
-        plt.savefig(
-            'extraction_eff_vs_dipole_height.png',
-            dpi=150,
-            bbox_inches='tight'
-        )
+        plt.savefig("extraction_eff_vs_dipole_height.png", dpi=150, bbox_inches="tight")
 ```
 
 

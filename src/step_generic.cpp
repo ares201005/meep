@@ -1,26 +1,25 @@
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
+%
+%  This program is free software; you can redistribute it and/or modify
+%  it under the terms of the GNU General Public License as published by
+%  the Free Software Foundation; either version 2, or (at your option)
+%  any later version.
+%
+%  This program is distributed in the hope that it will be useful,
+%  but WITHOUT ANY WARRANTY; without even the implied warranty of
+%  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+%  GNU General Public License for more details.
+%
+%  You should have received a copy of the GNU General Public License
+%  along with this program; if not, write to the Free Software Foundation,
+%  Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+*/
+
 #include "meep.hpp"
 #include "meep_internals.hpp"
 #include "config.h"
 
 #define RPR realnum *restrict
-
-/* These macros get into the guts of the PLOOP_OVER_VOL loops to
-   efficiently construct the index k into a PML sigma array.
-   Basically, k needs to increment by 2 for each increment of one of
-   LOOP's for-loops, starting at the appropriate corner of the grid_volume,
-   and these macros define the relevant strides etc. for each loop.
-   KSTRIDE_DEF defines the relevant strides etc. and goes outside the
-   LOOP, wheras KDEF defines the k index and goes inside the LOOP. */
-#define KSTRIDE_DEF(dsig, k, is, gv)                                                               \
-  const int k##0 = is.in_direction(dsig) - gv.little_corner().in_direction(dsig);                  \
-  const int s##k##1 = gv.yucky_direction(0) == dsig ? 2 : 0;                                       \
-  const int s##k##2 = gv.yucky_direction(1) == dsig ? 2 : 0;                                       \
-  const int s##k##3 = gv.yucky_direction(2) == dsig ? 2 : 0
-#define KDEF(k, dsig)                                                                              \
-  const int k = ((k##0 + s##k##1 * loop_i1) + s##k##2 * loop_i2) + s##k##3 * loop_i3
-#define DEF_k KDEF(k, dsig)
-#define DEF_ku KDEF(ku, dsigu)
-#define DEF_kw KDEF(kw, dsigw)
 
 using namespace std;
 
@@ -328,6 +327,206 @@ void step_beta(RPR f, component c, const RPR g, const grid_volume &gv, const ive
       }
       else { // no conductivity or PML
         PLOOP_OVER_IVECS(gv, is, ie, i) { f[i] += betadt * g[i]; }
+      }
+    }
+  }
+}
+// allows fixed angle broadband simulations
+void step_bfast(RPR f, component c, const RPR g1, const RPR g2, ptrdiff_t s1,
+                ptrdiff_t s2, // strides for g1/g2 shift
+                const grid_volume &gv, const ivec is, const ivec ie, realnum dtdx, direction dsig,
+                const RPR sig, const RPR kap, const RPR siginv, RPR fu, direction dsigu,
+                const RPR sigu, const RPR kapu, const RPR siginvu, realnum dt, const RPR cnd,
+                const RPR cndinv, RPR fcnd, RPR F, realnum k1, realnum k2) {
+  (void)c;   // currently unused
+  if (!g1) { // swap g1 and g2
+    SWAP(const RPR, g1, g2);
+    SWAP(ptrdiff_t, s1, s2);
+    SWAP(realnum, k1, k2); // need to swap in cross product
+  }
+  if (dsig == NO_DIRECTION) {    // no PML in f update
+    if (dsigu == NO_DIRECTION) { // no fu update
+      if (cnd) {
+        if (g2) {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            realnum F_prev = F[i];
+            F[i] = (k1 * (g1[i + s1] + g1[i]) - k2 * (g2[i + s2] + g2[i])) - F[i];
+            f[i] += (F[i] - F_prev) * cndinv[i];
+          }
+        }
+        else {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            realnum F_prev = F[i];
+            F[i] = k1 * (g1[i + s1] + g1[i]) - F[i];
+            f[i] += (F[i] - F_prev) * cndinv[i];
+          }
+        }
+      }
+      else { // no conductivity
+        if (g2) {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            realnum F_prev = F[i];
+            F[i] = (k1 * (g1[i + s1] + g1[i]) - k2 * (g2[i + s2] + g2[i])) - F[i];
+            f[i] += (F[i] - F_prev);
+          }
+        }
+        else {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            realnum F_prev = F[i];
+            F[i] = k1 * (g1[i + s1] + g1[i]);
+            f[i] += (F[i] - F_prev);
+          }
+        }
+      }
+    }
+    else { // fu update, no PML in f update
+      KSTRIDE_DEF(dsigu, ku, is, gv);
+      if (cnd) {
+        if (g2) {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_ku;
+            realnum df;
+            realnum F_prev = F[i];
+            F[i] = (k1 * (g1[i + s1] + g1[i]) - k2 * (g2[i + s2] + g2[i])) - F[i];
+            fu[i] += (df = (F[i] - F_prev) * cndinv[i]);
+            f[i] += siginvu[ku] * df;
+          }
+        }
+        else {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_ku;
+            realnum df;
+            realnum F_prev = F[i];
+            F[i] = k1 * (g1[i + s1] + g1[i]) - F[i];
+            fu[i] += (df = (F[i] - F_prev) * cndinv[i]);
+            f[i] += siginvu[ku] * df;
+          }
+        }
+      }
+      else { // no conductivity
+        if (g2) {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_ku;
+            realnum df;
+            realnum F_prev = F[i];
+            F[i] = (k1 * (g1[i + s1] + g1[i]) - k2 * (g2[i + s2] + g2[i])) - F[i];
+            fu[i] += (df = (F[i] - F_prev));
+            f[i] += siginvu[ku] * df;
+          }
+        }
+        else {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_ku;
+            realnum df;
+            realnum F_prev = F[i];
+            F[i] = k1 * (g1[i + s1] + g1[i]) - F[i];
+            fu[i] += (df = (F[i] - F_prev));
+            f[i] += siginvu[ku] * df;
+          }
+        }
+      }
+    }
+  }
+  else { // PML in f update
+    KSTRIDE_DEF(dsig, k, is, gv);
+    if (dsigu == NO_DIRECTION) { // no fu update
+      if (cnd) {
+        realnum dt2 = dt * 0.5;
+        if (g2) {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_k;
+            realnum F_prev = F[i];
+            F[i] = (k1 * (g1[i + s1] + g1[i]) - k2 * (g2[i + s2] + g2[i])) - F[i];
+            realnum dfcnd = (F[i] - F_prev) * cndinv[i];
+            fcnd[i] += dfcnd;
+            f[i] += dfcnd * siginv[k];
+          }
+        }
+        else {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_k;
+            realnum F_prev = F[i];
+            F[i] = k1 * (g1[i + s1] + g1[i]) - F[i];
+            realnum dfcnd = (F[i] - F_prev) * cndinv[i];
+            fcnd[i] += dfcnd;
+            f[i] += dfcnd * siginv[k];
+          }
+        }
+      }
+      else { // no conductivity (other than PML conductivity)
+        if (g2) {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_k;
+            realnum F_prev = F[i];
+            F[i] = (k1 * (g1[i + s1] + g1[i]) - k2 * (g2[i + s2] + g2[i])) - F[i];
+            f[i] += (F[i] - F_prev) * siginv[k];
+          }
+        }
+        else {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_k;
+            realnum F_prev = F[i];
+            F[i] = k1 * (g1[i + s1] + g1[i]) - F[i];
+            f[i] += (F[i] - F_prev) * siginv[k];
+          }
+        }
+      }
+    }
+    else { // fu update + PML in f update
+      KSTRIDE_DEF(dsigu, ku, is, gv);
+      if (cnd) {
+        if (g2) {
+          //////////////////// MOST GENERAL CASE //////////////////////
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_k;
+            DEF_ku;
+            realnum df;
+            realnum F_prev = F[i];
+            F[i] = (k1 * (g1[i + s1] + g1[i]) - k2 * (g2[i + s2] + g2[i])) - F[i];
+            realnum dfcnd = (F[i] - F_prev) * cndinv[i];
+            fcnd[i] += dfcnd;
+            fu[i] += (df = dfcnd * siginv[k]);
+            f[i] += siginvu[ku] * df;
+          }
+          /////////////////////////////////////////////////////////////
+        }
+        else {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_k;
+            DEF_ku;
+            realnum df;
+            realnum F_prev = F[i];
+            F[i] = k1 * (g1[i + s1] + g1[i]) - F[i];
+            realnum dfcnd = (F[i] - F_prev) * cndinv[i];
+            fcnd[i] += dfcnd;
+            fu[i] += (df = dfcnd * siginv[k]);
+            f[i] += siginvu[ku] * df;
+          }
+        }
+      }
+      else { // no conductivity (other than PML conductivity)
+        if (g2) {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_k;
+            DEF_ku;
+            realnum df;
+            realnum F_prev = F[i];
+            F[i] = (k1 * (g1[i + s1] + g1[i]) - k2 * (g2[i + s2] + g2[i])) - F[i];
+            fu[i] += (df = (F[i] - F_prev) * siginv[k]);
+            f[i] += siginvu[ku] * df;
+          }
+        }
+        else {
+          PLOOP_OVER_IVECS(gv, is, ie, i) {
+            DEF_k;
+            DEF_ku;
+            realnum df;
+            realnum F_prev = F[i];
+            F[i] = k1 * (g1[i + s1] + g1[i]) - F[i];
+            fu[i] += (df = (F[i] - F_prev) * siginv[k]);
+            f[i] += siginvu[ku] * df;
+          }
+        }
       }
     }
   }

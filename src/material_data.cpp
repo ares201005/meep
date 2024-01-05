@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -46,8 +46,8 @@ void medium_struct::check_offdiag_im_zero_or_abort() const {
 
 material_data::material_data()
     : which_subclass(MEDIUM), medium(), user_func(NULL), user_data(NULL), do_averaging(false),
-      epsilon_data(NULL), epsilon_dims{}, grid_size{}, weights(NULL), medium_1(),
-      medium_2(), material_grid_kinds{U_DEFAULT} {}
+      epsilon_data(NULL), epsilon_dims{}, grid_size{}, weights(NULL), medium_1(), medium_2(),
+      material_grid_kinds{U_DEFAULT} {}
 
 void material_data::copy_from(const material_data &from) {
   which_subclass = from.which_subclass;

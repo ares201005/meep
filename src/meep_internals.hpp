@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -14,7 +14,6 @@
 %  along with this program; if not, write to the Free Software Foundation,
 %  Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 */
-
 #include <vector>
 #include <string.h>
 #include "meep.hpp"
@@ -105,6 +104,14 @@ void step_beta(realnum *f, component c, const realnum *g, const grid_volume &gv,
                const ivec ie, realnum betadt, direction dsig, const realnum *siginv, realnum *fu,
                direction dsigu, const realnum *siginvu, const realnum *cndinv, realnum *fcnd);
 
+void step_bfast(realnum *f, component c, const realnum *g1, const realnum *g2, ptrdiff_t s1,
+                ptrdiff_t s2, // strides for g1/g2 shift
+                const grid_volume &gv, const ivec is, const ivec ie, realnum dtdx, direction dsig,
+                const realnum *sig, const realnum *kap, const realnum *siginv, realnum *fu,
+                direction dsigu, const realnum *sigu, const realnum *kapu, const realnum *siginvu,
+                realnum dt, const realnum *cnd, const realnum *cndinv, realnum *fcnd, realnum *F,
+                realnum k1, realnum k2);
+
 // functions in step_generic_stride1.cpp, generated from step_generic.cpp:
 
 void step_curl_stride1(realnum *f, component c, const realnum *g1, const realnum *g2, ptrdiff_t s1,
@@ -126,6 +133,14 @@ void step_beta_stride1(realnum *f, component c, const realnum *g, const grid_vol
                        const ivec is, const ivec ie, realnum betadt, direction dsig,
                        const realnum *siginv, realnum *fu, direction dsigu, const realnum *siginvu,
                        const realnum *cndinv, realnum *fcnd);
+
+void step_bfast_stride1(realnum *f, component c, const realnum *g1, const realnum *g2, ptrdiff_t s1,
+                        ptrdiff_t s2, // strides for g1/g2 shift
+                        const grid_volume &gv, const ivec is, const ivec ie, realnum dtdx,
+                        direction dsig, const realnum *sig, const realnum *kap,
+                        const realnum *siginv, realnum *fu, direction dsigu, const realnum *sigu,
+                        const realnum *kapu, const realnum *siginvu, realnum dt, const realnum *cnd,
+                        const realnum *cndinv, realnum *fcnd, realnum *F, realnum k1, realnum k2);
 
 /* macro wrappers around time-stepping functions: for performance reasons,
    if the inner loop is stride-1 then we use the stride-1 versions,
@@ -163,6 +178,17 @@ void step_beta_stride1(realnum *f, component c, const realnum *g, const grid_vol
       step_beta(f, c, g, gv, is, ie, betadt, dsig, siginv, fu, dsigu, siginvu, cndinv, fcnd);      \
   } while (0)
 
+#define STEP_BFAST(f, c, g1, g2, s1, s2, gv, is, ie, dtdx, dsig, sig, kap, siginv, fu, dsigu,      \
+                   sigu, kapu, siginvu, dt, cnd, cndinv, fcnd, F, k1, k2)                          \
+  do {                                                                                             \
+    if (LOOPS_ARE_STRIDE1(gv))                                                                     \
+      step_bfast_stride1(f, c, g1, g2, s1, s2, gv, is, ie, dtdx, dsig, sig, kap, siginv, fu,       \
+                         dsigu, sigu, kapu, siginvu, dt, cnd, cndinv, fcnd, F, k1, k2);            \
+    else                                                                                           \
+      step_bfast(f, c, g1, g2, s1, s2, gv, is, ie, dtdx, dsig, sig, kap, siginv, fu, dsigu, sigu,  \
+                 kapu, siginvu, dt, cnd, cndinv, fcnd, F, k1, k2);                                 \
+  } while (0)
+
 // analytical Green's functions from near2far.cpp, which we might want to expose someday
 void green3d(std::complex<double> *EH, const vec &x, double freq, double eps, double mu,
              const vec &x0, component c0, std::complex<double> f0);
@@ -179,5 +205,24 @@ complex<realnum> *collapse_array(complex<realnum> *array, int *rank, size_t dims
 void reduce_array_dimensions(volume where, int full_rank, size_t dims[3], direction dirs[3],
                              size_t stride[3], int &reduced_rank, size_t reduced_dims[3],
                              direction reduced_dirs[3], size_t reduced_stride[3]);
+
+/**** macros used internally by step_generic and friends: ****/
+/* These macros get into the guts of the PLOOP_OVER_VOL loops to
+   efficiently construct the index k into a PML sigma array.
+   Basically, k needs to increment by 2 for each increment of one of
+   LOOP's for-loops, starting at the appropriate corner of the grid_volume,
+   and these macros define the relevant strides etc. for each loop.
+   KSTRIDE_DEF defines the relevant strides etc. and goes outside the
+   LOOP, wheras KDEF defines the k index and goes inside the LOOP. */
+#define KSTRIDE_DEF(dsig, k, is, gv)                                                               \
+  const int k##0 = is.in_direction(dsig) - gv.little_corner().in_direction(dsig);                  \
+  const int s##k##1 = gv.yucky_direction(0) == dsig ? 2 : 0;                                       \
+  const int s##k##2 = gv.yucky_direction(1) == dsig ? 2 : 0;                                       \
+  const int s##k##3 = gv.yucky_direction(2) == dsig ? 2 : 0
+#define KDEF(k, dsig)                                                                              \
+  const int k = ((k##0 + s##k##1 * loop_i1) + s##k##2 * loop_i2) + s##k##3 * loop_i3
+#define DEF_k KDEF(k, dsig)
+#define DEF_ku KDEF(ku, dsigu)
+#define DEF_kw KDEF(kw, dsigw)
 
 } // namespace meep

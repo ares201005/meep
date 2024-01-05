@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -333,9 +333,9 @@ void structure::add_to_effort_volumes(const grid_volume &new_effort_volume, doub
 }
 
 structure::structure(const structure &s)
-    : num_chunks{s.num_chunks}, shared_chunks{false}, gv(s.gv),
-      user_volume(s.user_volume), a{s.a}, Courant{s.Courant}, dt{s.dt}, v(s.v), S(s.S),
-      outdir(s.outdir), num_effort_volumes{s.num_effort_volumes}, bp(new binary_partition(*s.bp)) {
+    : num_chunks{s.num_chunks}, shared_chunks{false}, gv(s.gv), user_volume(s.user_volume), a{s.a},
+      Courant{s.Courant}, dt{s.dt}, v(s.v), S(s.S), outdir(s.outdir),
+      num_effort_volumes{s.num_effort_volumes}, bp(new binary_partition(*s.bp)) {
   chunks = new structure_chunk_ptr[num_chunks];
   for (int i = 0; i < num_chunks; i++) {
     chunks[i] = new structure_chunk(s.chunks[i]);
@@ -543,6 +543,16 @@ bool structure_chunk::has_chisigma(component c, direction d) const {
 
 bool structure_chunk::has_chi1inv(component c, direction d) const {
   return is_mine() && chi1inv[c][d] && !trivial_chi1inv[c][d];
+}
+
+bool structure_chunk::has_nonlinearities() const {
+  bool nonlinear = false;
+  if (!is_mine()) return false;
+  FOR_COMPONENTS(c) { nonlinear = nonlinear || chi2[c] || chi3[c]; }
+  FOR_FIELD_TYPES(ft) {
+    if (chiP[ft]) nonlinear = nonlinear || chiP[ft]->has_nonlinearities();
+  }
+  return nonlinear;
 }
 
 void structure::mix_with(const structure *oth, double f) {

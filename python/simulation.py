@@ -1,3 +1,7 @@
+"""
+A collection of objects and helper routines for setting up the simulation.
+"""
+
 import functools
 import math
 import numbers
@@ -8,7 +12,8 @@ import subprocess
 import sys
 import warnings
 from collections import OrderedDict, namedtuple
-from typing import Callable, List, Optional, Tuple, Union
+from typing import Callable, List, NamedTuple, Optional, Tuple, Union
+from scipy.interpolate import pade
 
 try:
     from collections.abc import Sequence, Iterable
@@ -88,7 +93,11 @@ def fix_dft_args(args, i):
 
 
 def get_num_args(func):
-    return 2 if isinstance(func, Harminv) else func.__code__.co_argcount
+    return (
+        2
+        if isinstance(func, Harminv) or isinstance(func, PadeDFT)
+        else func.__code__.co_argcount
+    )
 
 
 def vec(*args):
@@ -218,21 +227,21 @@ class PML:
         pml_profile: Callable[[float], float] = DefaultPMLProfile,
     ):
         """
-        + **`thickness` [`number`]** — The spatial thickness of the PML layer which
+        + **`thickness` [ `number` ]** — The spatial thickness of the PML layer which
           extends from the boundary towards the *inside* of the cell. The thinner it is,
           the more numerical reflections become a problem. No default value.
 
-        + **`direction` [`direction` constant ]** — Specify the direction of the
+        + **`direction` [ `direction` constant ]** — Specify the direction of the
           boundaries to put the PML layers next to. e.g. if `X`, then specifies PML on the
           $\\pm x$ boundaries (depending on the value of `side`, below). Default is the
           special value `ALL`, which puts PML layers on the boundaries in all directions.
 
-        + **`side` [`side` constant ]** — Specify which side, `Low` or `High` of the
+        + **`side` [ `side` constant ]** — Specify which side, `Low` or `High` of the
           boundary or boundaries to put PML on. e.g. if side is `Low` and direction is
           `meep.X`, then a PML layer is added to the $-x$ boundary. Default is the special
           value `meep.ALL`, which puts PML layers on both sides.
 
-        + **`R_asymptotic` [`number`]** — The asymptotic reflection in the limit of
+        + **`R_asymptotic` [ `number` ]** — The asymptotic reflection in the limit of
           infinite resolution or infinite PML thickness, for reflections from air (an
           upper bound for other media with index &gt; 1). For a finite resolution or
           thickness, the reflection will be *much larger*, due to the discretization of
@@ -241,7 +250,7 @@ class PML:
           within the PML are attenuated sufficiently, but making `R_asymptotic` too small
           will increase the numerical reflection due to discretization.
 
-        + **`pml_profile` [`function`]** — By default, Meep turns on the PML conductivity
+        + **`pml_profile` [ `function` ]** — By default, Meep turns on the PML conductivity
           quadratically within the PML layer &mdash; one doesn't want to turn it on
           suddenly, because that exacerbates reflections due to the discretization. More
           generally, with `pml_profile` one can specify an arbitrary PML "profile"
@@ -349,11 +358,11 @@ class Symmetry:
         """
         Construct a `Symmetry`.
 
-        + **`direction` [`direction` constant ]** — The direction of the symmetry (the
+        + **`direction` [ `direction` constant ]** — The direction of the symmetry (the
           normal to a mirror plane or the axis for a rotational symmetry). e.g. `X`, `Y`,
           or `Z` (only Cartesian/grid directions are allowed). No default value.
 
-        + **`phase` [`complex`]** — An additional phase to multiply the fields by when
+        + **`phase` [ `complex` ]** — An additional phase to multiply the fields by when
           operating the symmetry on them. Default is +1, e.g. a phase of -1 for a mirror
           plane corresponds to an *odd* mirror. Technically, you are essentially
           specifying the representation of the symmetry group that your fields and sources
@@ -521,22 +530,22 @@ class FluxRegion:
         """
         Construct a `FluxRegion` object.
 
-        + **`center` [`Vector3`]** — The center of the flux region (no default).
+        + **`center` [ `Vector3` ]** — The center of the flux region (no default).
 
-        + **`size` [`Vector3`]** — The size of the flux region along each of the coordinate
+        + **`size` [ `Vector3` ]** — The size of the flux region along each of the coordinate
           axes. Default is `(0,0,0)`; a single point.
 
-        + **`direction` [`direction` constant ]** — The direction in which to compute the
+        + **`direction` [ `direction` constant ]** — The direction in which to compute the
           flux (e.g. `mp.X`, `mp.Y`, etcetera). Default is `AUTOMATIC`, in which the
           direction is determined by taking the normal direction if the flux region is a
           plane (or a line, in 2d). If the normal direction is ambiguous (e.g. for a point
           or volume), then you *must* specify the `direction` explicitly (not doing so
           will lead to an error).
 
-        + **`weight` [`complex`]** — A weight factor to multiply the flux by when it is
+        + **`weight` [ `complex` ]** — A weight factor to multiply the flux by when it is
           computed. Default is 1.0.
 
-        + **`volume` [`Volume`]** — A `meep.Volume` can be used to specify the flux region
+        + **`volume` [ `Volume` ]** — A `meep.Volume` can be used to specify the flux region
           instead of a `center` and a `size`.
         """
         if center is None and volume is None:
@@ -575,7 +584,7 @@ class ForceRegion(FluxRegion):
     + **`weight` [ `complex` ]** — A weight factor to multiply the force by when it is
       computed. Default is 1.0.
 
-    + **`volume` [`Volume`]** — A `meep.Volume` can be used to specify the force region
+    + **`volume` [ `Volume` ]** — A `meep.Volume` can be used to specify the force region
       instead of a `center` and a `size`.
 
     In most circumstances, you should define a set of `ForceRegion`s whose union is a
@@ -589,12 +598,12 @@ class EnergyRegion(FluxRegion):
     A region (volume, plane, line, or point) in which to compute the integral of the
     energy density of the Fourier-transformed fields. Its properties are:
 
-    + **`center` [`Vector3`]** — The center of the energy region (no default).
+    + **`center` [ `Vector3` ]** — The center of the energy region (no default).
 
-    + **`size` [`Vector3`]** — The size of the energy region along each of the coordinate
+    + **`size` [ `Vector3` ]** — The size of the energy region along each of the coordinate
       axes. Default is (0,0,0): a single point.
 
-    + **`weight` [`complex`]** — A weight factor to multiply the energy density by when it
+    + **`weight` [ `complex` ]** — A weight factor to multiply the energy density by when it
       is computed. Default is 1.0.
     """
 
@@ -859,6 +868,185 @@ class EigenmodeData:
         return mp.eigenmode_amplitude(self.swigobj, swig_point, component)
 
 
+class PadeDFT:
+    """
+    Padé approximant based spectral extrapolation is implemented as a class with a [`__call__`](#PadeDFT.__call__) method,
+    which allows it to be used as a step function that collects field data from a given
+    point and runs [Padé](https://docs.scipy.org/doc/scipy/reference/generated/scipy.interpolate.pade.html)
+    on that data to extract an analytic rational function which approximates the frequency response.
+    For more information about the Padé approximant, see the [Wikipedia article](https://en.wikipedia.org/wiki/Padé_approximant).
+
+    See [`__init__`](#PadeDFT.__init__) for details about constructing a `PadeDFT`.
+
+    In particular, `PadeDFT` stores the discrete time series $\\hat{f}[n]$ corresponding to the given field
+    component as a function of time and expresses it as:
+
+    $$\\hat{f}(\\omega) = \\sum_n \\hat{f}[n] e^{i\\omega n \\Delta t}$$
+
+    The above is a "Taylor-like" polynomial in $n$ with a Fourier basis and
+    coefficients which are the sampled field data. We then compute the Padé approximant
+    to be the analytic form of this function as:
+
+    $$R(f) = R(\\omega / 2\\pi) = \\frac{P(f)}{Q(f)}$$
+
+    Where $P$ and $Q$ are polynomials of degree $m$ and $n$, and $m + n + 1$ is the
+    degree of agreement of the Padé approximant to the analytic function $f(\\omega / 2\\pi)$. This
+    function $R$ is stored in the callable method `pade_instance.dft`. Note that the computed polynomials
+    $P$ and $Q$ for each spatial point are stored as well in the instance variable `pade_instance.polys`,
+    as a spatial array of dicts: `[{"P": P(t), "Q": Q(t)}]` with no spectral extrapolation performed.
+    Be sure to save a reference to the `Pade` instance if you wish
+    to use the results after the simulation:
+
+    ```py
+    sim = mp.Simulation(...)
+    p = mp.PadeDFT(...)
+    sim.run(p, until=time)
+    # do something with p.dft
+    ```
+    """
+
+    def __init__(
+        self,
+        c: int = None,
+        vol: Volume = None,
+        center: Vector3Type = None,
+        size: Vector3Type = None,
+        m: Optional[int] = None,
+        n: Optional[int] = None,
+        m_frac: float = 0.5,
+        n_frac: Optional[float] = None,
+        sampling_interval: int = 1,
+        start_time: int = 0,
+        stop_time: Optional[int] = None,
+    ):
+        """
+        Construct a Padé DFT object.
+
+        A `PadeDFT` is a step function that collects data from the field component `c`
+        (e.g. `meep.Ex`, etc.) at the given point `pt` (a `Vector3`). Then, at the end
+        of the run, it uses the scipy Padé algorithm to approximate the analytic
+        frequency response at the specified point.
+
+        + **`c` [ `component` constant ]** — The field component to use for extrapolation.
+          No default.
+        + **`vol` [ `Volume` ]** — The volume over which to accumulate the fields
+          (may be 0d, 1d, 2d, or 3d). No default.
+        + **`center` [ `Vector3` class ]** — Alternative method for specifying volume, using a center point
+        + **`size` [ `Vector3` class ]** — Alternative method for specifying volume, using a size vector
+        + **`m` [ `int` ]** — The order of the numerator $P$. If not specified,
+          defaults to the length of aggregated field data times `m_frac`.
+        + **`n` [ `int` ]** — The order of the denominator $Q$. Defaults
+          to length of field data - `m` - 1.
+        + **`m_frac` [ `float` ]** — Method for specifying `m` as a fraction of
+          field samples to use as the order for numerator. Default is 0.5.
+        + **`n_frac` [ `float` ]** — Fraction of field samples to use as order for
+          denominator. No default.
+        + **`sampling_interval` [ `int` ]** — The interval at which to sample the field data.
+          Defaults to 1.
+        + **`start_time` [ `int` ]** — The time (in increments of $\\Delta t$) at which
+          to start sampling the field data. Default is 0 (beginning of simulation).
+        + **`stop_time` [ `int` ]** — The time (in increments of $\\Delta t$) at which
+          to stop sampling the field data. Default is `None` (end of simulation).
+        """
+        self.c = c
+        self.vol = vol
+        self.center = center
+        self.size = size
+        self.m = m
+        self.n = n
+        self.m_frac = m_frac
+        self.n_frac = n_frac
+        self.sampling_interval = sampling_interval
+        self.start_time = start_time
+        self.stop_time = stop_time
+        self.data = []
+        self.data_dt = 0
+        self.dft: Callable = None
+        self.step_func = self._pade()
+
+    def __call__(self, sim, todo):
+        """
+        Allows a PadeDFT instance to be used as a step function.
+        """
+        self.step_func(sim, todo)
+
+    def _collect_pade(self, c, vol, center, size):
+        self.t0 = 0
+
+        def _collect(sim):
+            self.data_dt = sim.meep_time() - self.t0
+            self.t0 = sim.meep_time()
+            self.data.append(sim.get_array(c, vol, center, size))
+
+        return _collect
+
+    def _analyze_pade(self, sim):
+        # Ensure that the field data has dimension (# time steps x (volume dims))
+        self.data = np.atleast_2d(self.data)
+
+        # If the supplied volume is actually a point, np.atleast_2d will have
+        # shape (1, T), we want (T, 1)
+        if np.shape(self.data)[0] == 1:
+            self.data = self.data.T
+
+        # Sample the collected field data and possibly truncate the beginning or
+        # end to avoid transients
+        # TODO(Arjun-Khurana): Create a custom run function that collects field
+        # only at required points in time
+        samples = np.array(
+            self.data[self.start_time : self.stop_time : self.sampling_interval]
+        )
+
+        # Infer the desired behavior for m and n from the supplied arguments
+        if not self.m:
+            if not self.m_frac:
+                raise ValueError("Either m or m_frac must be provided.")
+            self.m = int(len(samples) * self.m_frac)
+        if not self.n:
+            self.n = (
+                int(len(samples) - self.m - 1)
+                if not self.n_frac
+                else int(len(samples) * self.n_frac)
+            )
+
+        # Helper method to be able to use np.apply_along_axis()
+        def _unpack_pade(arr, m, n):
+            P, Q = pade(arr, m, n)
+            return {"P": P, "Q": Q}
+
+        # Apply pade at each point in space, store a dictionary containing the rational function
+        # numerator and denominator at each spatial point
+        self.polys = np.apply_along_axis(_unpack_pade, 0, samples, self.m, self.n)
+
+        # Computes the rational function R(f) from the numerator and denominator
+        # and stores the result at each point in space
+        def _R_f(d, freq):
+            return np.divide(
+                d["P"](
+                    np.exp(
+                        1j * 2 * np.pi * freq * self.sampling_interval * sim.fields.dt
+                    )
+                ),
+                d["Q"](
+                    np.exp(
+                        1j * 2 * np.pi * freq * self.sampling_interval * sim.fields.dt
+                    )
+                ),
+            )
+
+        # Final output is a function of frequency that returns an array with the same size
+        # as the provided volume, with the evaluation of the dft at each point in the volume
+        return lambda freq: np.squeeze(np.vectorize(_R_f)(self.polys, freq))
+
+    def _pade(self):
+        def _p(sim):
+            self.dft = self._analyze_pade(sim)
+
+        f1 = self._collect_pade(self.c, self.vol, self.center, self.size)
+
+        return _combine_step_funcs(at_end(_p), f1)
+
+
 class Harminv:
     """
     Harminv is implemented as a class with a [`__call__`](#Harminv.__call__) method,
@@ -1031,7 +1219,7 @@ class Simulation:
 
     def __init__(
         self,
-        cell_size: Optional[Vector3Type] = None,
+        cell_size: Vector3Type = None,
         resolution: float = None,
         geometry: Optional[List[GeometricObject]] = None,
         sources: Optional[List[Source]] = None,
@@ -1042,6 +1230,7 @@ class Simulation:
         force_complex_fields: bool = False,
         default_material: Medium = mp.Medium(),
         m: float = 0,
+        bfast_scaled_k: Optional[Vector3Type] = None,
         k_point: Union[Vector3Type, bool] = False,
         kz_2d: str = "complex",
         extra_materials: Optional[List[Medium]] = None,
@@ -1106,7 +1295,7 @@ class Simulation:
           to pick some characteristic lengthscale of your problem and set that length to 1.
           See also [Units](Introduction.md#units-in-meep). Required argument (no default).
 
-        + **`default_material` [`Medium` class ]** — Holds the default material that is
+        + **`default_material` [ `Medium` class ]** — Holds the default material that is
           used for points not in any object of the geometry list. Defaults to `air` (ε=1).
           This can also be a NumPy array that defines a dielectric function much like
           `epsilon_input_file` below (see below). If you want to use a material function
@@ -1120,7 +1309,7 @@ class Simulation:
           returns the dielectric constant at that point. See also [Material
           Function](#medium). Defaults to `None`.
 
-        + **`epsilon_input_file` [`string`]** — If this string is not empty (the default),
+        + **`epsilon_input_file` [ `string` ]** — If this string is not empty (the default),
           then it should be the name of an HDF5 file whose first/only dataset defines a
           scalar, real-valued, frequency-independent dielectric function over some
           discrete grid. Alternatively, the dataset name can be specified explicitly if
@@ -1133,7 +1322,7 @@ class Simulation:
           `default_material`, whereas other properties (μ, susceptibilities,
           nonlinearities, etc.) of `default_material` are still used.
 
-        + **`dimensions` [`integer`]** — Explicitly specifies the dimensionality of the
+        + **`dimensions` [ `integer` ]** — Explicitly specifies the dimensionality of the
           simulation, if the value is less than 3. If the value is 3 (the default), then
           the dimensions are automatically reduced to 2 if possible when `cell_size` in
           the $z$ direction is `0`. If `dimensions` is the special value of `CYLINDRICAL`,
@@ -1142,11 +1331,11 @@ class Simulation:
           must be along the $z$ direction and only $E_x$ and $H_y$ field components are
           permitted. If `dimensions` is 2, then the cell must be in the $xy$ plane.
 
-        + **`m` [`number`]** — For `CYLINDRICAL` simulations, specifies that the angular
+        + **`m` [ `number` ]** — For `CYLINDRICAL` simulations, specifies that the angular
           $\\phi$ dependence of the fields is of the form $e^{im\\phi}$ (default is `m=0`).
           If the simulation cell includes the origin $r=0$, then `m` must be an integer.
 
-        + **`accurate_fields_near_cylorigin` [`boolean`]** — For `CYLINDRICAL` simulations
+        + **`accurate_fields_near_cylorigin` [ `boolean` ]** — For `CYLINDRICAL` simulations
           with |*m*| &gt; 1, compute more accurate fields near the origin $r=0$ at the
           expense of requiring a smaller Courant factor. Empirically, when this option is
           set to `True`, a Courant factor of roughly $\\min[0.5, 1 / (|m| + 0.5)]$ or
@@ -1155,10 +1344,10 @@ class Simulation:
           usually ensures stability with the default Courant factor of 0.5, at the expense
           of slowing convergence of the fields near $r=0$.
 
-        + **`resolution` [`number`]** — Specifies the computational grid resolution in
+        + **`resolution` [ `number` ]** — Specifies the computational grid resolution in
           pixels per distance unit. Required argument. No default.
 
-        + **`k_point` [`False` or `Vector3`]** — If `False` (the default), then the
+        + **`k_point` [ `False` or `Vector3` ]** — If `False` (the default), then the
           boundaries are perfect metallic (zero electric field). If a `Vector3`, then the
           boundaries are Bloch-periodic: the fields at one side are
           $\\exp(i\\mathbf{k}\\cdot\\mathbf{R})$ times the fields at the other side, separated
@@ -1168,7 +1357,7 @@ class Simulation:
           equivalent to taking MPB's `k_points` through its function
           `reciprocal->cartesian`.
 
-        + **`kz_2d` [`"complex"`, `"real/imag"`, or `"3d"`]** — A 2d cell (i.e.,
+        + **`kz_2d` [ `"complex"`, `"real/imag"`, or `"3d"` ]** — A 2d cell (i.e.,
           `dimensions=2`) combined with a `k_point` that has a *non-zero* component in $z$
           would normally result in a 3d simulation with complex fields. However, by
           default (`kz_2d="complex"`), Meep will use a 2d computational cell in which
@@ -1181,12 +1370,12 @@ class Simulation:
           this option requires some care to use. See [2d Cell with Out-of-Plane
           Wavevector](2d_Cell_Special_kz.md).
 
-        + **`ensure_periodicity` [`boolean`]** — If `True` (the default) *and* if the
+        + **`ensure_periodicity` [ `boolean` ]** — If `True` (the default) *and* if the
           boundary conditions are periodic (`k_point` is not `False`), then the geometric
           objects are automatically repeated periodically according to the lattice vectors
           which define the size of the cell.
 
-        + **`eps_averaging` [`boolean`]** — If `True` (the default), then [subpixel
+        + **`eps_averaging` [ `boolean` ]** — If `True` (the default), then [subpixel
           averaging](Subpixel_Smoothing.md) is used when initializing the dielectric
           function. For simulations involving a [material function](#medium),
           `eps_averaging` is `False` (the default) and must be
@@ -1200,13 +1389,13 @@ class Simulation:
           effects and irregular
           convergence](Subpixel_Smoothing.md#what-happens-when-subpixel-smoothing-is-disabled).
 
-        + **`force_complex_fields` [`boolean`]** — By default, Meep runs its simulations
+        + **`force_complex_fields` [ `boolean` ]** — By default, Meep runs its simulations
           with purely real fields whenever possible. It uses complex fields which require
           twice the memory and computation if the `k_point` is non-zero or if `m` is
           non-zero. However, by setting `force_complex_fields` to `True`, Meep will always
           use complex fields.
 
-        + **`force_all_components` [`boolean`]** — By default, in a 2d simulation Meep
+        + **`force_all_components` [ `boolean` ]** — By default, in a 2d simulation Meep
           uses only the field components that might excited by your current sources:
           either the in-plane $(E_x,E_y,H_z)$ or out-of-plane $(H_x,H_y,E_z)$ polarization,
           depending on the source.  (Both polarizations are excited if you use multiple source
@@ -1216,12 +1405,12 @@ class Simulation:
           simulate all fields, even those that remain zero throughout the simulation, by
           setting `force_all_components` to `True`.
 
-        + **`filename_prefix` [`string`]** — A string prepended to all output filenames
+        + **`filename_prefix` [ `string` ]** — A string prepended to all output filenames
           (e.g., for HDF5 files). If `None` (the default), then Meep constructs a default
           prefix based on the current Python filename ".py" replaced by "-" (e.g. `foo.py`
           uses a `"foo-"` prefix). You can get this prefix by calling `get_filename_prefix`.
 
-        + **`Courant` [`number`]** — Specify the
+        + **`Courant` [ `number` ]** — Specify the
           [Courant factor](https://en.wikipedia.org/wiki/Courant%E2%80%93Friedrichs%E2%80%93Lewy_condition)
           $S$ which relates the time step size to the spatial discretization: $cΔ t = SΔ x$.
           Default is 0.5. For numerical stability, the Courant factor must be *at
@@ -1229,26 +1418,26 @@ class Simulation:
           the minimum refractive index (usually 1), and in practice $S$ should be slightly
           smaller.
 
-        + **`loop_tile_base_db`, `loop_tile_base_eh` [`number`]** — To improve the [memory locality](https://en.wikipedia.org/wiki/Locality_of_reference)
+        + **`loop_tile_base_db`, `loop_tile_base_eh` [ `number` ]** — To improve the [memory locality](https://en.wikipedia.org/wiki/Locality_of_reference)
           of the field updates, Meep has an experimental feature to "tile" the loops over the Yee grid
           voxels. The splitting of the update loops for step-curl and update-eh into tiles or subdomains
           involves a recursive-bisection method in which the base case for the number of voxels is
           specified using these two parameters, respectively. The default value is 0 or no tiling;
           a typical nonzero value to try would be 10000.
 
-        + **`output_volume` [`Volume` class ]** — Specifies the default region of space
+        + **`output_volume` [ `Volume` class ]** — Specifies the default region of space
           that is output by the HDF5 output functions (below); see also the `Volume` class
           which manages `meep::volume*` objects. Default is `None`, which means that the
           whole cell is output. Normally, you should use the `in_volume(...)` function to
           modify the output volume instead of setting `output_volume` directly.
 
-        + **`output_single_precision` [`boolean`]** — Meep performs its computations in
+        + **`output_single_precision` [ `boolean` ]** — Meep performs its computations in
           [double-precision floating point](Build_From_Source.md#floating-point-precision-of-the-fields-and-materials-arrays),
           and by default its output HDF5 files are in the same format. However, by setting
           this variable to `True` (default is `False`) you can instead output in single
           precision which saves a factor of two in space.
 
-        + **`progress_interval` [`number`]** — Time interval (seconds) after which Meep
+        + **`progress_interval` [ `number` ]** — Time interval (seconds) after which Meep
           prints a progress message. Default is 4 seconds.
 
         + **`extra_materials` [ list of `Medium` class ]** — By default, Meep turns off
@@ -1264,7 +1453,7 @@ class Simulation:
           that are specified by geometric objects. You should list any materials other
           than scalar dielectrics that are returned by `material_function` here.
 
-        + **`chunk_layout` [`string` or `Simulation` instance or `BinaryPartition` class]** —
+        + **`chunk_layout` [ `string` or `Simulation` instance or `BinaryPartition` class ]** —
           This will cause the `Simulation` to use the chunk layout described by either
           (1) an `.h5` file (created using `Simulation.dump_chunk_layout`), (2) another
           `Simulation` instance, or (3) a [`BinaryPartition`](#binarypartition) class object.
@@ -1274,21 +1463,21 @@ class Simulation:
         The following require a bit more understanding of the inner workings of Meep to
         use. See also [SWIG Wrappers](#swig-wrappers).
 
-        + **`structure` [`meep::structure*`]** — Pointer to the current structure being
+        + **`structure` [ `meep::structure*` ]** — Pointer to the current structure being
           simulated; initialized by `_init_structure` which is called automatically by
           `init_sim()` which is called automatically by any of the [run
           functions](#run-functions). The structure initialization is handled by the
           `Simulation` class, and most users will not need to call `_init_structure`.
 
-        + **`fields` [`meep::fields*`]** — Pointer to the current fields being simulated;
+        + **`fields` [ `meep::fields*` ]** — Pointer to the current fields being simulated;
           initialized by `init_sim()` which is called automatically by any of the [run
           functions](#run-functions).
 
-        + **`num_chunks` [`integer`]** — Minimum number of "chunks" (subregions) to divide
+        + **`num_chunks` [ `integer` ]** — Minimum number of "chunks" (subregions) to divide
           the structure/fields into. Overrides the default value determined by
           the number of processors, PML layers, etcetera. Mainly useful for debugging.
 
-        + **`split_chunks_evenly` [`boolean`]** — When `True` (the default), the work per
+        + **`split_chunks_evenly` [ `boolean` ]** — When `True` (the default), the work per
           [chunk](Chunks_and_Symmetry.md) is not taken into account when splitting chunks
           up for multiple processors. The cell is simply split up into equal chunks (with
           the exception of PML regions, which must be on their own chunk). When `False`,
@@ -1339,6 +1528,7 @@ class Simulation:
         self.last_eps_filename = ""
         self.output_h5_hook = lambda fname: False
         self.interactive = False
+        self.bfast_scaled_k = (0, 0, 0) if bfast_scaled_k is None else bfast_scaled_k
         self.is_cylindrical = False
         self.material_function = material_function
         self.epsilon_func = epsilon_func
@@ -2287,6 +2477,7 @@ class Simulation:
             not self.accurate_fields_near_cylorigin,
             self.loop_tile_base_db,
             self.loop_tile_base_eh,
+            self.bfast_scaled_k,
         )
 
         if self.force_all_components and self.dimensions != 1:
@@ -2428,6 +2619,13 @@ class Simulation:
         if self.fields is None:
             self.init_sim()
         return self.fields.time()
+
+    def timestep(self) -> int:
+        """Return the number of elapsed timesteps."""
+
+        if self.fields is None:
+            self.init_sim()
+        return self.fields.t
 
     def round_time(self):
         if self.fields is None:
@@ -2573,6 +2771,7 @@ class Simulation:
         """
         if not dname:
             dname = self.get_filename_prefix() + "-out"
+            self.filename_prefix = None
 
         closure = {"trashed": False}
 
@@ -2588,7 +2787,6 @@ class Simulation:
 
         if self.fields is not None:
             hook()
-        self.filename_prefix = None
 
         return dname
 
@@ -2759,128 +2957,13 @@ class Simulation:
             eps, self.eps_averaging, self.subpixel_tol, self.subpixel_maxeval
         )
 
-    def add_source(self, src):
-        if self.fields is None:
-            self.init_sim()
-
-        if isinstance(src, IndexedSource):
-            self.fields.register_src_time(src.src.swigobj)
-            self.fields.add_srcdata(
-                src.srcdata,
-                src.src.swigobj,
-                src.num_pts,
-                src.amp_arr,
-                src.needs_boundary_fix,
-            )
-            return
-
-        where = Volume(
-            src.center,
-            src.size,
-            dims=self.dimensions,
-            is_cylindrical=self.is_cylindrical,
-        ).swigobj
-
-        if isinstance(src, EigenModeSource):
-            if src.direction < 0:
-                direction = self.fields.normal_direction(where)
-            else:
-                direction = src.direction
-
-            eig_vol = Volume(
-                src.eig_lattice_center,
-                src.eig_lattice_size,
-                self.dimensions,
-                is_cylindrical=self.is_cylindrical,
-            ).swigobj
-
-            if isinstance(src.eig_band, DiffractedPlanewave):
-                eig_band = 1
-                diffractedplanewave = bands_to_diffractedplanewave(where, src.eig_band)
-            elif isinstance(src.eig_band, int):
-                eig_band = src.eig_band
-
-            add_eig_src_args = [
-                src.component,
-                src.src.swigobj,
-                direction,
-                where,
-                eig_vol,
-                eig_band,
-                py_v3_to_vec(
-                    self.dimensions, src.eig_kpoint, is_cylindrical=self.is_cylindrical
-                ),
-                src.eig_match_freq,
-                src.eig_parity,
-                src.eig_resolution,
-                src.eig_tolerance,
-                src.amplitude,
-            ]
-            add_eig_src = functools.partial(
-                self.fields.add_eigenmode_source, *add_eig_src_args
-            )
-
-            if isinstance(src.eig_band, DiffractedPlanewave):
-                add_eig_src(src.amp_func, diffractedplanewave)
-            else:
-                add_eig_src(src.amp_func)
-        elif isinstance(src, GaussianBeamSource):
-            gaussianbeam_args = [
-                py_v3_to_vec(
-                    self.dimensions, src.beam_x0, is_cylindrical=self.is_cylindrical
-                ),
-                py_v3_to_vec(
-                    self.dimensions, src.beam_kdir, is_cylindrical=self.is_cylindrical
-                ),
-                src.beam_w0,
-                src.src.swigobj.frequency().real,
-                self.fields.get_eps(
-                    py_v3_to_vec(self.dimensions, src.center, self.is_cylindrical)
-                ).real,
-                self.fields.get_mu(
-                    py_v3_to_vec(self.dimensions, src.center, self.is_cylindrical)
-                ).real,
-                np.array(
-                    [src.beam_E0.x, src.beam_E0.y, src.beam_E0.z], dtype=np.complex128
-                ),
-            ]
-            gaussianbeam = mp.gaussianbeam(*gaussianbeam_args)
-            add_vol_src_args = [src.src.swigobj, where, gaussianbeam]
-            add_vol_src = functools.partial(
-                self.fields.add_volume_source, *add_vol_src_args
-            )
-            add_vol_src()
-        else:
-            add_vol_src_args = [src.component, src.src.swigobj, where]
-            add_vol_src = functools.partial(
-                self.fields.add_volume_source, *add_vol_src_args
-            )
-
-            if src.amp_func_file:
-                fname_dset = src.amp_func_file.rsplit(":", 1)
-                if len(fname_dset) != 2:
-                    err_msg = (
-                        "Expected a string of the form 'h5filename:dataset'. Got '{}'"
-                    )
-                    raise ValueError(err_msg.format(src.amp_func_file))
-
-                fname, dset = fname_dset
-                if not fname.endswith(".h5"):
-                    fname += ".h5"
-
-                add_vol_src(fname, dset, src.amplitude * 1.0)
-            elif src.amp_func:
-                add_vol_src(src.amp_func, src.amplitude * 1.0)
-            elif src.amp_data is not None:
-                add_vol_src(src.amp_data, src.amplitude * 1.0)
-            else:
-                add_vol_src(src.amplitude * 1.0)
-
     def add_sources(self):
-        if self.fields is None:
-            self.init_sim()  # in case only some processes have IndexedSources
         for s in self.sources:
-            self.add_source(s)
+            if self.fields is None:
+                self.init_sim()  # in case only some processes have IndexedSources
+            s.add_source(
+                self
+            )  # each source type can optionally override its own add_source method, else will default to mp.Source method
         self.fields.require_source_components()  # needed by IndexedSource objects
 
     def _evaluate_dft_objects(self):
@@ -3781,37 +3864,35 @@ class Simulation:
 
     def get_array(
         self,
-        component=None,
-        vol=None,
-        center=None,
-        size=None,
-        cmplx=None,
-        arr=None,
-        frequency=0,
-        snap=False,
+        component: int = None,
+        vol: Volume = None,
+        center: Vector3Type = None,
+        size: Vector3Type = None,
+        cmplx: bool = None,
+        arr: Optional[np.ndarray] = None,
+        frequency: float = 0,
+        snap: bool = False,
     ):
         """
-        Takes as input a subregion of the cell and the field/material component. The
-        method returns a NumPy array containing values of the field/material at the
-        current simulation time.
+        Returns a slice of the materials or time-domain fields over a subregion of the cell at the
+        current simulation time as a NumPy array. The materials/fields are centered on the Yee-grid voxels
+        using a bilinear interpolation of the nearest Yee-grid points.
 
-        **Parameters:**
+        + **`component` [ `component` constant ]** — The field or material component (e.g., `meep.Ex`,
+          `meep.Hy`, `meep.Sz`, `meep.Dielectric`, etc) of the array data. No default.
 
-        + `vol`: `Volume`; the orthogonal subregion/slice of the computational volume. The
-          return value of `get_array` has the same dimensions as the `Volume`'s `size`
+        + **`vol` [ `Volume` ]** — The rectilinear subregion/slice of the cell volume.
+          The return value of `get_array` has the same dimensions as the `Volume`'s `size`
           attribute. If `None` (default), then a `size` and `center` must be specified.
 
-        + `center`, `size` : `Vector3`; if both are specified, the library will construct
+        + **`center`, `size` [ `Vector3` ]** — If both are specified, the method will construct
           an appropriate `Volume`. This is a convenience feature and alternative to
           supplying a `Volume`.
 
-        + `component`: field/material component (i.e., `mp.Ex`, `mp.Hy`, `mp.Sz`,
-          `mp.Dielectric`, etc). Defaults to `None`.
-
-        + `cmplx`: `boolean`; if `True`, return complex-valued data otherwise return
+        + **`cmplx` [ `boolean` ]** — If `True`, return complex-valued data otherwise return
           real-valued data (default).
 
-        + `arr`: optional parameter to pass a pre-allocated NumPy array of the correct size and
+        + **`arr` [ `numpy.ndarray` ]** — Optional parameter to pass a pre-allocated NumPy array of the correct size and
           type (either `numpy.float32` or `numpy.float64` depending on the [floating-point precision
           of the fields and materials](Build_From_Source.md#floating-point-precision-of-the-fields-and-materials-arrays))
           which will be overwritten with the field/material data instead of allocating a
@@ -3819,13 +3900,12 @@ class Simulation:
           `get_array` for a similar slice, allowing one to re-use `arr` (e.g., when
           fetching the same slice repeatedly at different times).
 
-        + `frequency`: optional frequency point over which the average eigenvalue of the
+        + **`frequency` [ `number` ]** — The frequency at which the average eigenvalue of the
           $\\varepsilon$ and $\\mu$ tensors are evaluated. Defaults to 0 which is the
           instantaneous $\\varepsilon$.
 
-        + `snap`: By default, the elements of the grid slice are obtained using a bilinear
-          interpolation of the nearest Yee grid points. Empty dimensions of the grid slice
-          are "collapsed" into a single element. However, if `snap` is set to `True`, this
+        + **`snap` [ `boolean` ]** — Empty dimensions of the grid slice are "collapsed"
+          into a single element. However, if `snap` is set to `True`, this
           interpolation behavior is disabled and the grid slice is instead "snapped"
           everywhere to the nearest grid point. (Empty slice dimensions are still of size
           one.) This feature is mainly useful for comparing results with the
@@ -3903,19 +3983,22 @@ class Simulation:
 
         return arr
 
-    def get_dft_array(self, dft_obj, component, num_freq):
+    def get_dft_array(
+        self,
+        dft_obj: DftObj = None,
+        component: int = None,
+        num_freq: int = None,
+    ):
         """
         Returns the Fourier-transformed fields as a NumPy array. The type is either `numpy.complex64`
-        or `numpy.complex128` depending on the [floating-point precision of the fields](Build_From_Source.md#floating-point-precision-of-the-fields-and-materials-arrays).
+        or `numpy.complex128` depending on the [floating-point precision of the fields](Build_From_Source.md#floating-point-precision-of-the-fields-and-materials-arrays). The DFT fields are centered on the Yee-grid voxels using bilinear interpolation of the nearest Yee-grid points.
 
-        **Parameters:**
-
-        + `dft_obj`: a `dft_flux`, `dft_force`, `dft_fields`, or `dft_near2far` object
+        + **`dft_obj` [ `DftObj` class ]** — A `dft_flux`, `dft_force`, `dft_fields`, or `dft_near2far` object
           obtained from calling the appropriate `add` function (e.g., `mp.add_flux`).
 
-        + `component`: a field component (e.g., `mp.Ez`).
+        + **`component` [ `component` constant ]**— The field component (e.g., `meep.Ez`).
 
-        + `num_freq`: the index of the frequency. An integer in the range `0...nfreq-1`,
+        + **`num_freq` [ `int` ]** — The index of the frequency. An integer in the range `0...nfreq-1`,
           where `nfreq` is the number of frequencies stored in `dft_obj` as set by the
           `nfreq` parameter to `add_dft_fields`, `add_flux`, etc.
         """
@@ -3973,7 +4056,7 @@ class Simulation:
         or `center`/`size`. In both cases, the return value is a tuple `(x,y,z,w)`, where:
 
         + `x,y,z` are 1d NumPy arrays storing the $x,y,z$ coordinates of the points in the
-          grid slice
+          grid slice. Cylindrical coordinates is not supported.
         + `w` is a NumPy array of the same dimensions as the array returned by
           `get_array`/`get_dft_array`, whose entries are the weights in a cubature rule
           for integrating over the spatial region (with the points in the cubature rule
@@ -4049,23 +4132,23 @@ class Simulation:
 
     def get_eigenmode_coefficients(
         self,
-        flux,
-        bands,
-        eig_parity=mp.NO_PARITY,
-        eig_vol=None,
-        eig_resolution=0,
-        eig_tolerance=1e-12,
-        kpoint_func=None,
-        direction=mp.AUTOMATIC,
-    ):
+        flux: DftFlux,
+        bands: Union[List[int], DiffractedPlanewave],
+        eig_parity: int = mp.NO_PARITY,
+        eig_vol: Volume = None,
+        eig_resolution: float = 0,
+        eig_tolerance: float = 1e-12,
+        kpoint_func: Callable[[float, int], float] = None,
+        direction: int = mp.AUTOMATIC,
+    ) -> NamedTuple:
         """
-        Given a flux object and list of band indices `bands` or `DiffractedPlanewave`, return a `namedtuple` with the
-        following fields:
+        Given a flux object and list of band indices (integers) `bands` or a `DiffractedPlanewave` object,
+        return a `namedtuple` with the following fields:
 
         + `alpha`: the complex eigenmode coefficients as a 3d NumPy array of size
           (`len(bands)`, `flux.nfreqs`, `2`). The last/third dimension refers to modes
           propagating in the forward (+) or backward (-) directions defined relative to
-          the mode's dominant wavevector.
+          the sign of the propagation constant β of the mode (the wavevector component in the direction perpendicular to the mode-monitor plane).
         + `vgrp`: the group velocity as a NumPy array.
         + `kpoints`: a list of `mp.Vector3`s of the `kpoint` used in the mode calculation.
         + `kdom`: a list of `mp.Vector3`s of the mode's dominant wavevector.
@@ -4664,7 +4747,8 @@ class Simulation:
         ax: Optional[Axes] = None,
         output_plane: Optional[Volume] = None,
         fields: Optional = None,
-        labels: Optional[bool] = False,
+        labels: bool = False,
+        label_geometry: bool = True,
         eps_parameters: Optional[dict] = None,
         boundary_parameters: Optional[dict] = None,
         source_parameters: Optional[dict] = None,
@@ -4716,7 +4800,9 @@ class Simulation:
           `mp.Hz`) to superimpose over the simulation geometry. Default is `None`, where
           no fields are superimposed.
         * `labels`: if `True`, then labels will appear over each of the simulation
-          elements.
+          elements. Defaults to `False`.
+        * `label_geometry`: if `True`, then labels will appear over each of the geometry
+          elements. Defaults to `True`.
         * `eps_parameters`: a `dict` of optional plotting parameters that override the
           default parameters for the geometry.
             - `interpolation='spline36'`: interpolation algorithm used to upsample the pixels.
@@ -4791,6 +4877,7 @@ class Simulation:
             output_plane=output_plane,
             fields=fields,
             labels=labels,
+            label_geometry=label_geometry,
             eps_parameters=eps_parameters,
             boundary_parameters=boundary_parameters,
             source_parameters=source_parameters,
@@ -6150,7 +6237,7 @@ def get_group_masters():
 
     # Check if current worker is a group master
     is_group_master = True if mp.my_rank() == 0 else False
-    group_master_idx = np.zeros((num_workers,), dtype=np.bool)
+    group_master_idx = np.zeros((num_workers,), dtype=np.bool_)
 
     # Formulate send and receive packets
     smsg = [np.array([is_group_master]), ([1] * num_workers, [0] * num_workers)]

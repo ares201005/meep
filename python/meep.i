@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
  *
  *  This program is free software; you can redistribute it and/or modify
  *  it under the terms of the GNU General Public License as published by
@@ -89,6 +89,11 @@ extern boolean point_in_periodic_objectp(vector3 p, GEOMETRIC_OBJECT o);
 void display_geometric_object_info(int indentby, GEOMETRIC_OBJECT o);
 
 %}
+
+%ignore meep::eigenmode_data::mdata;
+%ignore meep::eigenmode_data::fft_data_H;
+%ignore meep::eigenmode_data::fft_data_E;
+%ignore meep::eigenmode_data::H;
 
 %include "numpy.i"
 %include "std_vector.i"
@@ -714,6 +719,7 @@ meep::volume_list *make_volume_list(const meep::volume &v, int c,
 
 %typemap(freearg) double (*)(const meep::vec &) {
   Py_XDECREF(py_callback);
+  py_callback = NULL;
 }
 
 %typecheck(SWIG_TYPECHECK_POINTER) double (*)(const meep::vec &) {
@@ -738,6 +744,7 @@ meep::volume_list *make_volume_list(const meep::volume &v, int c,
 
 %typemap(freearg) std::complex<double> (*)(const meep::vec &) {
     Py_XDECREF(py_amp_func);
+    py_amp_func = NULL;
 }
 
 // Typemap suite for vector3
@@ -844,9 +851,9 @@ meep::volume_list *make_volume_list(const meep::volume &v, int c,
 
 %inline %{
 void _get_gradient(PyObject *grad, double scalegrad,
-                    meep::dft_fields *fields_a_0, meep::dft_fields *fields_a_1, meep::dft_fields *fields_a_2,
-                    meep::dft_fields *fields_f_0, meep::dft_fields *fields_f_1, meep::dft_fields *fields_f_2,
-                   meep::grid_volume *grid_volume, meep::volume *where, PyObject *frequencies,
+                   meep::dft_fields *fields_a_0, meep::dft_fields *fields_a_1, meep::dft_fields *fields_a_2,
+                   meep::dft_fields *fields_f_0, meep::dft_fields *fields_f_1, meep::dft_fields *fields_f_2,
+                   meep::grid_volume *grid_volume, PyObject *frequencies,
                    meep_geom::geom_epsilon *geps, double fd_step) {
 
     // clean the gradient array
@@ -872,7 +879,7 @@ void _get_gradient(PyObject *grad, double scalegrad,
     if (PyArray_DIMS(pao_grad)[0] != nf) meep::abort("Numpy grad array is allocated for %td frequencies; it should be allocated for %td.",PyArray_DIMS(pao_grad)[0],nf);
 
     // calculate the gradient
-    meep_geom::material_grids_addgradient(grad_c,ng,nf,adjoint_fields,forward_fields,frequencies_c,scalegrad,*grid_volume,*where,geps,fd_step);
+    meep_geom::material_grids_addgradient(grad_c,ng,nf,adjoint_fields,forward_fields,frequencies_c,scalegrad,*grid_volume,geps,fd_step);
 
 }
 %}
@@ -1050,6 +1057,7 @@ void _get_gradient(PyObject *grad, double scalegrad,
 
 %typemap(freearg) std::complex<double> (*)(const meep::vec &) {
     Py_XDECREF(py_amp_func);
+    py_amp_func = NULL;
 }
 
 %typecheck(SWIG_TYPECHECK_POINTER) PyObject *min_max_loc {
@@ -1720,6 +1728,7 @@ PyObject *_get_array_slice_dimensions(meep::fields *f, const meep::volume &where
         FluxRegion,
         ForceRegion,
         Harminv,
+        PadeDFT,
         Identity,
         Mirror,
         ModeRegion,
@@ -1842,6 +1851,9 @@ PyObject *_get_array_slice_dimensions(meep::fields *f, const meep::volume &where
         SourceTime,
         check_positive,
         GaussianBeamSource,
+        GaussianBeam3DSource,
+        GaussianBeam2DSource,
+        get_equiv_sources,
     )
     from .visualization import (
         plot2D,

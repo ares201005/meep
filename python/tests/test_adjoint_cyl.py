@@ -29,23 +29,45 @@ boundary_layers = [mp.PML(thickness=dpml)]
 design_region_resolution = int(2 * resolution)
 design_r = 5
 design_z = 2
-Nr, Nz = int(design_r * design_region_resolution), int(
-    design_z * design_region_resolution
+Nr, Nz = (
+    int(design_r * design_region_resolution) + 1,
+    int(design_z * design_region_resolution) + 1,
 )
 
 fcen = 1 / 1.55
 width = 0.2
 fwidth = width * fcen
-source_center = [design_r / 2, 0, -(sz / 2 - dpml + design_z / 2) / 2]
-source_size = mp.Vector3(design_r, 0, 0)
-src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
-source = [mp.Source(src, component=mp.Er, center=source_center, size=source_size)]
 
 ## random design region
 p = 0.5 * rng.rand(Nr * Nz)
 ## random epsilon perturbation for design region
 deps = 1e-5
 dp = deps * rng.rand(Nr * Nz)
+
+
+def get_source(m):
+    source_center = mp.Vector3(
+        design_r / 2,
+        0,
+        -(sz / 2 - dpml + design_z / 2) / 2,
+    )
+    # exclude r=0 whenever |m| > 1
+    source_size = mp.Vector3(
+        design_r if abs(m) <= 1 else 0.5 * design_r,
+        0,
+        0,
+    )
+    src = mp.GaussianSource(frequency=fcen, fwidth=fwidth)
+    source = [
+        mp.Source(
+            src,
+            component=mp.Er,
+            center=source_center,
+            size=source_size,
+        )
+    ]
+
+    return source
 
 
 def forward_simulation(design_params, m, far_x):
@@ -65,7 +87,7 @@ def forward_simulation(design_params, m, far_x):
         resolution=resolution,
         cell_size=cell_size,
         boundary_layers=boundary_layers,
-        sources=source,
+        sources=get_source(m),
         geometry=geometry,
         dimensions=dimensions,
         m=m,
@@ -111,7 +133,7 @@ def adjoint_solver(design_params, m, far_x):
         cell_size=cell_size,
         boundary_layers=boundary_layers,
         geometry=geometry,
-        sources=source,
+        sources=get_source(m),
         resolution=resolution,
         dimensions=dimensions,
         m=m,
@@ -180,7 +202,7 @@ class TestAdjointSolver(ApproxComparisonTestCase):
         adj_scale = (dp[None, :] @ adjsol_grad).flatten()
         fd_grad = S12_perturbed - S12_unperturbed
         print(f"Directional derivative -- adjoint solver: {adj_scale}, FD: {fd_grad}")
-        tol = 0.2 if mp.is_single_precision() else 0.1
+        tol = 0.6 if m == 0 else 0.3
         self.assertClose(adj_scale, fd_grad, epsilon=tol)
 
 

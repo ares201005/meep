@@ -83,6 +83,7 @@ TESTS =                                        \
     $(TEST_DIR)/test_multilevel_atom.py        \
     $(TEST_DIR)/test_n2f_periodic.py           \
     $(TEST_DIR)/test_oblique_source.py         \
+    $(TEST_DIR)/test_pml_cyl.py                \
     $(TEST_DIR)/test_physical.py               \
     $(TEST_DIR)/test_prism.py                  \
     $(TEST_DIR)/test_pw_source.py              \
@@ -94,6 +95,7 @@ TESTS =                                        \
     $(TEST_DIR)/test_source.py                 \
     $(TEST_DIR)/test_timing_measurements.py    \
     $(TEST_DIR)/test_user_defined_material.py  \
+    $(TEST_DIR)/test_verbosity_mgr.py          \
     $(TEST_DIR)/test_visualization.py          \
     $(WVG_SRC_TEST)
 
@@ -238,6 +240,7 @@ adjoint_PYTHON  = $(srcdir)/adjoint/__init__.py              \
                   $(srcdir)/adjoint/filters.py               \
                   $(srcdir)/adjoint/filter_source.py         \
                   $(srcdir)/adjoint/connectivity.py         \
+                  $(srcdir)/adjoint/unfilter_design.py        \
                   $(srcdir)/adjoint/wrapper.py               \
                   $(srcdir)/adjoint/utils.py
 

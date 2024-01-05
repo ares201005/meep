@@ -1,3 +1,19 @@
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
+%
+%  This program is free software; you can redistribute it and/or modify
+%  it under the terms of the GNU General Public License as published by
+%  the Free Software Foundation; either version 2, or (at your option)
+%  any later version.
+%
+%  This program is distributed in the hope that it will be useful,
+%  but WITHOUT ANY WARRANTY; without even the implied warranty of
+%  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+%  GNU General Public License for more details.
+%
+%  You should have received a copy of the GNU General Public License
+%  along with this program; if not, write to the Free Software Foundation,
+%  Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
+*/
 #include <algorithm>
 #include <complex>
 #include <cstdlib>
@@ -218,9 +234,9 @@ mode_solver::mode_solver(int num_bands, double resolution[3], lattice lat, doubl
       use_simple_preconditioner(use_simple_preconditioner), grid_size(grid_size), nwork_alloc(0),
       eigensolver_nwork(eigensolver_nwork), eigensolver_block_size(eigensolver_block_size),
       last_parity(-2), iterations(0), eigensolver_flops(flops), geometry_list{},
-      geometry_tree(NULL), vol(0), R{}, G{}, mdata(NULL), mtdata(NULL),
-      curfield_band(0), H{}, Hblock{}, muinvH{}, W{}, freqs(num_bands), verbose(verbose),
-      deterministic(deterministic), kpoint_index(0), curfield(NULL), curfield_type('-'), eps(true) {
+      geometry_tree(NULL), vol(0), R{}, G{}, mdata(NULL), mtdata(NULL), curfield_band(0), H{},
+      Hblock{}, muinvH{}, W{}, freqs(num_bands), verbose(verbose), deterministic(deterministic),
+      kpoint_index(0), curfield(NULL), curfield_type('-'), eps(true) {
 
   // See geom-ctl-io-defaults.c in libctl
   geometry_lattice = lat;

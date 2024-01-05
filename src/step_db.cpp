@@ -1,4 +1,4 @@
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -62,6 +62,7 @@ bool fields_chunk::step_db(field_type ft) {
         realnum *f_p = have_p ? f[c_p][cmp] : NULL;
         realnum *f_m = have_m ? f[c_m][cmp] : NULL;
         realnum *the_f = f[cc][cmp];
+        bool use_bfast = bfast_scaled_k[0] || bfast_scaled_k[1] || bfast_scaled_k[2];
 
         if (dsig != NO_DIRECTION && s->conductivity[cc][d_c] && !f_cond[cc][cmp]) {
           f_cond[cc][cmp] = new realnum[gv.ntot()];
@@ -71,6 +72,10 @@ bool fields_chunk::step_db(field_type ft) {
           f_u[cc][cmp] = new realnum[gv.ntot()];
           memcpy(f_u[cc][cmp], the_f, gv.ntot() * sizeof(realnum));
           allocated_u = true;
+        }
+        if (use_bfast && !f_bfast[cc][cmp]) {
+          f_bfast[cc][cmp] = new realnum[gv.ntot()];
+          memset(f_bfast[cc][cmp], 0, sizeof(realnum) * gv.ntot());
         }
 
         if (ft == D_stuff) { // strides are opposite sign for H curl
@@ -120,6 +125,22 @@ bool fields_chunk::step_db(field_type ft) {
                   sub_gv.big_corner(), Courant, dsig, s->sig[dsig], s->kap[dsig], s->siginv[dsig],
                   f_u[cc][cmp], dsigu, s->sig[dsigu], s->kap[dsigu], s->siginv[dsigu], dt,
                   s->conductivity[cc][d_c], s->condinv[cc][d_c], f_cond[cc][cmp]);
+
+        if (use_bfast) {
+          realnum k1 =
+              have_m ? bfast_scaled_k[component_index(c_m)] : 0; // puts k1 in direction of g2
+          realnum k2 =
+              have_p ? bfast_scaled_k[component_index(c_p)] : 0; // puts k2 in direction of g1
+          if (ft == D_stuff) {
+            k1 = -k1;
+            k2 = -k2;
+          }
+          STEP_BFAST(the_f, cc, f_p, f_m, stride_p, stride_m, gv, sub_gv.little_owned_corner0(cc),
+                     sub_gv.big_corner(), Courant, dsig, s->sig[dsig], s->kap[dsig],
+                     s->siginv[dsig], f_u[cc][cmp], dsigu, s->sig[dsigu], s->kap[dsigu],
+                     s->siginv[dsigu], dt, s->conductivity[cc][d_c], s->condinv[cc][d_c],
+                     f_cond[cc][cmp], f_bfast[cc][cmp], k1, k2);
+        }
       }
     }
   }
@@ -169,107 +190,103 @@ bool fields_chunk::step_db(field_type ft) {
         const direction dsigu = cycle_direction(gv.dim, d_c, 2);
         const realnum *siginvu = s->sigsize[dsigu] > 1 ? s->siginv[dsigu] : 0;
         const int dku = gv.iyee_shift(cc).in_direction(dsigu);
+        const ivec is = gv.little_owned_corner0(cc);
+
+        // Constant factor for the i*m component of the i*m/r term.
+        // A factor of 2 is included because in LOOP_OVER_VOL_OWNED0 each
+        // increment of the array index in the grid_volume in the R direction
+        // corresponds to a change of 0.5*Δr in real space.
         const realnum the_m =
-            m * (1 - 2 * cmp) * (1 - 2 * (ft == B_stuff)) * (1 - 2 * (d_c == R)) * Courant;
-        const realnum ir0 = gv.origin_r() * gv.a + 0.5 * gv.iyee_shift(cc).in_direction(R);
-        int sr = gv.nz() + 1;
+            2 * m * (1 - 2 * cmp) * (1 - 2 * (ft == B_stuff)) * (1 - 2 * (d_c == R)) * Courant;
 
         // 8 special cases of the same loop (sigh):
         if (siginv) {    // PML in f update
           if (siginvu) { // PML + fu
             if (cndinv)  // PML + fu + conductivity
               //////////////////// MOST GENERAL CASE //////////////////////
-              for (int ir = ir0 == 0; ir <= gv.nr(); ++ir) {
-                realnum rinv = the_m / (ir + ir0);
-                for (int iz = 0; iz <= gv.nz(); ++iz) {
-                  ptrdiff_t idx = ir * sr + iz;
-                  int k = dk + 2 * (dsig == Z ? iz : ir);
-                  int ku = dku + 2 * (dsigu == Z ? iz : ir);
-                  realnum df, dfcnd = rinv * g[idx] * cndinv[idx];
-                  fcnd[idx] += dfcnd;
-                  fu[idx] += (df = dfcnd * siginv[k]);
-                  the_f[idx] += siginvu[ku] * df;
-                }
+              LOOP_OVER_VOL_OWNED0(gv, cc, i) {
+                IVEC_LOOP_ILOC(gv, here);
+                realnum rinv = the_m / here.r();
+                KSTRIDE_DEF(dsig, k, is, gv);
+                DEF_k;
+                KSTRIDE_DEF(dsigu, ku, is, gv);
+                DEF_ku;
+                realnum df, dfcnd = rinv * g[i] * cndinv[i];
+                fcnd[i] += dfcnd;
+                fu[i] += (df = dfcnd * siginv[k]);
+                the_f[i] += siginvu[ku] * df;
               }
             /////////////////////////////////////////////////////////////
             else // PML + fu - conductivity
-              for (int ir = ir0 == 0; ir <= gv.nr(); ++ir) {
-                realnum rinv = the_m / (ir + ir0);
-                for (int iz = 0; iz <= gv.nz(); ++iz) {
-                  ptrdiff_t idx = ir * sr + iz;
-                  int k = dk + 2 * (dsig == Z ? iz : ir);
-                  int ku = dku + 2 * (dsigu == Z ? iz : ir);
-                  realnum df, dfcnd = rinv * g[idx];
-                  fu[idx] += (df = dfcnd * siginv[k]);
-                  the_f[idx] += siginvu[ku] * df;
-                }
+              LOOP_OVER_VOL_OWNED0(gv, cc, i) {
+                IVEC_LOOP_ILOC(gv, here);
+                realnum rinv = the_m / here.r();
+                KSTRIDE_DEF(dsig, k, is, gv);
+                DEF_k;
+                KSTRIDE_DEF(dsigu, ku, is, gv);
+                DEF_ku;
+                realnum df, dfcnd = rinv * g[i];
+                fu[i] += (df = dfcnd * siginv[k]);
+                the_f[i] += siginvu[ku] * df;
               }
           }
           else {        // PML - fu
             if (cndinv) // PML - fu + conductivity
-              for (int ir = ir0 == 0; ir <= gv.nr(); ++ir) {
-                realnum rinv = the_m / (ir + ir0);
-                for (int iz = 0; iz <= gv.nz(); ++iz) {
-                  ptrdiff_t idx = ir * sr + iz;
-                  int k = dk + 2 * (dsig == Z ? iz : ir);
-                  realnum dfcnd = rinv * g[idx] * cndinv[idx];
-                  fcnd[idx] += dfcnd;
-                  the_f[idx] += dfcnd * siginv[k];
-                }
+              LOOP_OVER_VOL_OWNED0(gv, cc, i) {
+                IVEC_LOOP_ILOC(gv, here);
+                realnum rinv = the_m / here.r();
+                KSTRIDE_DEF(dsig, k, is, gv);
+                DEF_k;
+                realnum dfcnd = rinv * g[i] * cndinv[i];
+                fcnd[i] += dfcnd;
+                the_f[i] += dfcnd * siginv[k];
               }
             else // PML - fu - conductivity
-              for (int ir = ir0 == 0; ir <= gv.nr(); ++ir) {
-                realnum rinv = the_m / (ir + ir0);
-                for (int iz = 0; iz <= gv.nz(); ++iz) {
-                  ptrdiff_t idx = ir * sr + iz;
-                  int k = dk + 2 * (dsig == Z ? iz : ir);
-                  realnum dfcnd = rinv * g[idx];
-                  the_f[idx] += dfcnd * siginv[k];
-                }
+              LOOP_OVER_VOL_OWNED0(gv, cc, i) {
+                IVEC_LOOP_ILOC(gv, here);
+                realnum rinv = the_m / here.r();
+                KSTRIDE_DEF(dsig, k, is, gv);
+                DEF_k;
+                realnum dfcnd = rinv * g[i];
+                the_f[i] += dfcnd * siginv[k];
               }
           }
         }
         else {           // no PML in f update
           if (siginvu) { // no PML + fu
             if (cndinv)  // no PML + fu + conductivity
-              for (int ir = ir0 == 0; ir <= gv.nr(); ++ir) {
-                realnum rinv = the_m / (ir + ir0);
-                for (int iz = 0; iz <= gv.nz(); ++iz) {
-                  ptrdiff_t idx = ir * sr + iz;
-                  int ku = dku + 2 * (dsigu == Z ? iz : ir);
-                  realnum df = rinv * g[idx] * cndinv[idx];
-                  fu[idx] += df;
-                  the_f[idx] += siginvu[ku] * df;
-                }
+              LOOP_OVER_VOL_OWNED0(gv, cc, i) {
+                IVEC_LOOP_ILOC(gv, here);
+                realnum rinv = the_m / here.r();
+                KSTRIDE_DEF(dsigu, ku, is, gv);
+                DEF_ku;
+                realnum df = rinv * g[i] * cndinv[i];
+                fu[i] += df;
+                the_f[i] += siginvu[ku] * df;
               }
             else // no PML + fu - conductivity
-              for (int ir = ir0 == 0; ir <= gv.nr(); ++ir) {
-                realnum rinv = the_m / (ir + ir0);
-                for (int iz = 0; iz <= gv.nz(); ++iz) {
-                  ptrdiff_t idx = ir * sr + iz;
-                  int ku = dku + 2 * (dsigu == Z ? iz : ir);
-                  realnum df = rinv * g[idx];
-                  fu[idx] += df;
-                  the_f[idx] += siginvu[ku] * df;
-                }
+              LOOP_OVER_VOL_OWNED0(gv, cc, i) {
+                IVEC_LOOP_ILOC(gv, here);
+                realnum rinv = the_m / here.r();
+                KSTRIDE_DEF(dsigu, ku, is, gv);
+                DEF_ku;
+                realnum df = rinv * g[i];
+                fu[i] += df;
+                the_f[i] += siginvu[ku] * df;
               }
           }
           else {        // no PML - fu
             if (cndinv) // no PML - fu + conductivity
-              for (int ir = ir0 == 0; ir <= gv.nr(); ++ir) {
-                realnum rinv = the_m / (ir + ir0);
-                for (int iz = 0; iz <= gv.nz(); ++iz) {
-                  ptrdiff_t idx = ir * sr + iz;
-                  the_f[idx] += rinv * g[idx] * cndinv[idx];
-                }
+              LOOP_OVER_VOL_OWNED0(gv, cc, i) {
+                IVEC_LOOP_ILOC(gv, here);
+                realnum rinv = the_m / here.r();
+                the_f[i] += rinv * g[i] * cndinv[i];
               }
             else // no PML - fu - conductivity
-              for (int ir = ir0 == 0; ir <= gv.nr(); ++ir) {
-                realnum rinv = the_m / (ir + ir0);
-                for (int iz = 0; iz <= gv.nz(); ++iz) {
-                  ptrdiff_t idx = ir * sr + iz;
-                  the_f[idx] += rinv * g[idx];
-                }
+              LOOP_OVER_VOL_OWNED0(gv, cc, i) {
+                IVEC_LOOP_ILOC(gv, here);
+                realnum rinv = the_m / here.r();
+                the_f[i] += rinv * g[i];
               }
           }
         }
@@ -285,21 +302,38 @@ bool fields_chunk::step_db(field_type ft) {
         // d(Dz)/dt = (1/r) * d(r*Hp)/dr
         const realnum *g = f[Hp][cmp];
         const realnum *cndinv = s->condinv[Dz][Z];
+        const realnum *cnd = s->conductivity[Dz][Z];
         realnum *fcnd = f_cond[Dz][cmp];
         const direction dsig = cycle_direction(gv.dim, Z, 1);
         const realnum *siginv = s->sigsize[dsig] > 1 ? s->siginv[dsig] : 0;
-        const int dk = gv.iyee_shift(Dz).in_direction(dsig);
+        const realnum *sig = s->sigsize[dsig] > 1 ? s->sig[dsig] : 0;
+        const realnum *kap = s->sigsize[dsig] > 1 ? s->kap[dsig] : 0;
         const direction dsigu = cycle_direction(gv.dim, Z, 2);
         const realnum *siginvu = s->sigsize[dsigu] > 1 ? s->siginv[dsigu] : 0;
-        const int dku = gv.iyee_shift(Dz).in_direction(dsigu);
+        const realnum *sigu = s->sigsize[dsigu] > 1 ? s->sig[dsigu] : 0;
+        const realnum *kapu = s->sigsize[dsigu] > 1 ? s->kap[dsigu] : 0;
         realnum *fu = siginvu && f_u[Dz][cmp] ? f[Dz][cmp] : 0;
         realnum *the_f = fu ? f_u[Dz][cmp] : f[Dz][cmp];
-        for (int iz = 0; iz < nz; ++iz) {
-          // Note: old code (prior to Meep 0.2) was missing factor of 4??
-          realnum df, dfcnd = g[iz] * (Courant * 4) * (cndinv ? cndinv[iz] : 1);
-          if (fcnd) fcnd[iz] += dfcnd;
-          the_f[iz] += (df = dfcnd * (siginv ? siginv[dk + 2 * (dsig == Z) * iz] : 1));
-          if (fu) fu[iz] += siginvu[dku + 2 * (dsigu == Z) * iz] * df;
+        realnum dt2 = dt * 0.5;
+
+        ivec is = gv.little_owned_corner(Dz);
+        ivec ie = gv.big_owned_corner(Dz);
+        ie.set_direction(R, 0);
+        LOOP_OVER_IVECS(gv, is, ie, i) {
+          realnum fprev = the_f[i];
+          realnum dfcnd = g[i] * (Courant * 4);
+          if (fcnd) {
+            realnum fcnd_prev = fcnd[i];
+            fcnd[i] = ((1 - dt2 * cnd[i]) * fcnd[i] + dfcnd) * cndinv[i];
+            dfcnd = fcnd[i] - fcnd_prev;
+          }
+          KSTRIDE_DEF(dsig, k, is, gv);
+          DEF_k;
+          KSTRIDE_DEF(dsigu, ku, is, gv);
+          DEF_ku;
+          the_f[i] = ((kap ? kap[k] - sig[k] : 1) * the_f[i] + dfcnd) * (siginv ? siginv[k] : 1);
+          if (fu)
+            fu[i] = siginvu[ku] * ((kapu ? kapu[ku] - sigu[ku] : 1) * fu[i] + the_f[i] - fprev);
         }
         ZERO_Z(f[Dp][cmp]);
         if (f_cond[Dp][cmp]) ZERO_Z(f_cond[Dp][cmp]);
@@ -319,25 +353,40 @@ bool fields_chunk::step_db(field_type ft) {
         const realnum *f_p = f[ft == D_stuff ? Hr : Ep][cmp];
         const realnum *f_m = ft == D_stuff ? f[Hz][cmp] : (f[Ez][1 - cmp] + (nz + 1));
         const realnum *cndinv = s->condinv[cc][d_c];
+        const realnum *cnd = s->conductivity[cc][d_c];
         realnum *fcnd = f_cond[cc][cmp];
         const direction dsig = cycle_direction(gv.dim, d_c, 1);
         const realnum *siginv = s->sigsize[dsig] > 1 ? s->siginv[dsig] : 0;
-        const int dk = gv.iyee_shift(cc).in_direction(dsig);
+        const realnum *sig = s->sigsize[dsig] > 1 ? s->sig[dsig] : 0;
+        const realnum *kap = s->sigsize[dsig] > 1 ? s->kap[dsig] : 0;
         const direction dsigu = cycle_direction(gv.dim, d_c, 2);
         const realnum *siginvu = s->sigsize[dsigu] > 1 ? s->siginv[dsigu] : 0;
-        const int dku = gv.iyee_shift(cc).in_direction(dsigu);
+        const realnum *sigu = s->sigsize[dsigu] > 1 ? s->sig[dsigu] : 0;
+        const realnum *kapu = s->sigsize[dsigu] > 1 ? s->kap[dsigu] : 0;
         realnum *fu = siginvu && f_u[cc][cmp] ? f[cc][cmp] : 0;
         realnum *the_f = fu ? f_u[cc][cmp] : f[cc][cmp];
         int sd = ft == D_stuff ? +1 : -1;
-        realnum f_m_mult = ft == D_stuff ? 2 : (1 - 2 * cmp);
+        realnum f_m_mult = ft == D_stuff ? 2 : (1 - 2 * cmp) * m;
+        realnum dt2 = dt * 0.5;
 
-        for (int iz = (ft == D_stuff); iz < nz + (ft == D_stuff); ++iz) {
-          realnum df;
-          realnum dfcnd = (sd * Courant) * (f_p[iz] - f_p[iz - sd] - f_m_mult * f_m[iz]) *
-                          (cndinv ? cndinv[iz] : 1);
-          if (fcnd) fcnd[iz] += dfcnd;
-          the_f[iz] += (df = dfcnd * (siginv ? siginv[dk + 2 * (dsig == Z) * iz] : 1));
-          if (fu) fu[iz] += siginvu[dku + 2 * (dsigu == Z) * iz] * df;
+        ivec is = gv.little_owned_corner(cc);
+        ivec ie = gv.big_owned_corner(cc);
+        ie.set_direction(R, 0);
+        LOOP_OVER_IVECS(gv, is, ie, i) {
+          realnum fprev = the_f[i];
+          realnum dfcnd = (sd * Courant) * (f_p[i] - f_p[i - sd] - f_m_mult * f_m[i]);
+          if (fcnd) {
+            realnum fcnd_prev = fcnd[i];
+            fcnd[i] = ((1 - dt2 * cnd[i]) * fcnd[i] + dfcnd) * cndinv[i];
+            dfcnd = fcnd[i] - fcnd_prev;
+          }
+          KSTRIDE_DEF(dsig, k, is, gv);
+          DEF_k;
+          KSTRIDE_DEF(dsigu, ku, is, gv);
+          DEF_ku;
+          the_f[i] = ((kap ? kap[k] - sig[k] : 1) * the_f[i] + dfcnd) * (siginv ? siginv[k] : 1);
+          if (fu)
+            fu[i] = siginvu[ku] * ((kapu ? kapu[ku] - sigu[ku] : 1) * fu[i] + the_f[i] - fprev);
         }
         if (ft == D_stuff) {
           ZERO_Z(f[Dz][cmp]);

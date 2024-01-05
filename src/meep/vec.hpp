@@ -1,5 +1,5 @@
 // -*- C++ -*-
-/* Copyright (C) 2005-2022 Massachusetts Institute of Technology
+/* Copyright (C) 2005-2023 Massachusetts Institute of Technology
 %
 %  This program is free software; you can redistribute it and/or modify
 %  it under the terms of the GNU General Public License as published by
@@ -163,7 +163,7 @@ component first_field_component(field_type ft);
                         (is - (gv).little_corner()).yucky_val(2) / 2 * loop_s3,                    \
                  loop_i1 = 0;                                                                      \
        loop_i1 < loop_n1; loop_i1++)                                                               \
-    for (int loop_i2 = 0; loop_i2 < loop_n2; loop_i2++)                                            \
+    for (ptrdiff_t loop_i2 = 0; loop_i2 < loop_n2; loop_i2++)                                      \
       for (ptrdiff_t idx = idx0 + loop_i1 * loop_s1 + loop_i2 * loop_s2, loop_i3 = 0;              \
            loop_i3 < loop_n3; loop_i3++, idx += loop_s3)
 
