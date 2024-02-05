@@ -115,7 +115,7 @@ jobs:
         echo "dir=$(pip cache dir)" >> $GITHUB_OUTPUT
 
     - name: pip cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       id: cache
       with:
         path: ${{ steps.pip-cache.outputs.dir }}
@@ -191,7 +191,7 @@ jobs:
 
     - name: Upload coverage to Codecov
       if: ${{ matrix.enable-mpi == false && matrix.python-version == 3.9 }}
-      uses: codecov/codecov-action@v3
+      uses: codecov/codecov-action@v4
       with:
         files: ${{ github.workspace }}/python/coverage.xml
 
